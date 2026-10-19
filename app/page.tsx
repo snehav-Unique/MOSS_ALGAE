@@ -156,7 +156,7 @@ export default function MossExperience() {
   return <main className="experience">
     <aside className="rail" aria-label="Primary navigation">
       <button className="monogram" onClick={() => setView('home')} aria-label="Moss and algae home">
-        <img src="/biofilter-emblem.png" alt="Moss and algae biofilter emblem"/>
+        <img src="/moss-algae-project-emblem-v2.png" alt="Moss and algae biofilter emblem"/>
       </button>
       <nav>
         <button className={view === 'home' ? 'active' : ''} onClick={() => setView('home')}><Home size={18}/><span>HOME</span></button>

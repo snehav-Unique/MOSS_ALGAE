@@ -20,3 +20,5 @@
 .map,.locations-leaflet,.leaflet-container{background:transparent!important}.map-fallback,.locations-map-fallback{opacity:1}.map-fallback.hidden,.locations-map-fallback.hidden{opacity:0!important;pointer-events:none}.leaflet-container img.leaflet-image-layer,.leaflet-container .leaflet-tile-pane img{max-width:none!important;max-height:none!important}.leaflet-tile:not(.leaflet-tile-loaded){visibility:hidden}
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}.landing-image,.image-shade,.landing-top,.hero-copy{animation:none!important}.enter-twin{transition:none!important}}
 @media(max-width:600px){.monogram img{width:68px;height:68px}}
+.monogram{height:112px;background:#10241b;padding:4px}.monogram img{width:102px;height:102px;filter:drop-shadow(0 4px 10px rgba(0,0,0,.28))}
+@media(max-width:600px){.monogram{height:88px}.monogram img{width:80px;height:80px}}
