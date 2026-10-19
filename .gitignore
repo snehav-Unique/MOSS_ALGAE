@@ -1,0 +1,28 @@
+# Dependencies and build output
+node_modules/
+.next/
+out/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Python-generated files and environments
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Logs and OS/editor artifacts
+*.log
+.DS_Store
+Thumbs.db
+
+# Local browser/map diagnostics
+.chrome-*/
+.map-*
