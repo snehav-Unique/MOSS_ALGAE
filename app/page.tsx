@@ -85,6 +85,8 @@ export default function MossExperience() {
     if (view !== 'twin' || !baselineMapNode.current || !futureMapNode.current || leafletMaps.current.length) return;
     let active = true;
     let resizeObserver:ResizeObserver|null = null;
+    let mapsWithLiveTiles = 0;
+    const tileHealthTimers:Array<ReturnType<typeof setTimeout>> = [];
     setMapError(false);
     import('leaflet').then(({default:L}) => {
       if (!active || !baselineMapNode.current || !futureMapNode.current) return;
@@ -95,7 +97,7 @@ export default function MossExperience() {
           L.control.zoom({position:'bottomleft'}).addTo(map);
           map.createPane('offlineMap');
           const offlinePane=map.getPane('offlineMap');
-          if(offlinePane)offlinePane.style.zIndex='250';
+          if(offlinePane)offlinePane.style.zIndex='150';
           const offlineMap=L.imageOverlay(
             '/bengaluru-map.webp',
             [[12.811801316582617,77.431640625],[13.06877673435769,77.6953125]],
@@ -110,8 +112,17 @@ export default function MossExperience() {
           offlineMap.addTo(map);
           setMapsReady(current => current.map((ready, position) => position === index ? true : ready));
           const tiles = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap contributors'}).addTo(map);
+          let reportedLive = false;
+          const tileHealthTimer=setTimeout(()=>{
+            if(active&&mapsWithLiveTiles===0)setMapError(true);
+          },7000);
+          tileHealthTimers.push(tileHealthTimer);
           tiles.on('tileloadstart',(event:any)=>{event.tile.style.setProperty('max-width','none','important');event.tile.style.setProperty('max-height','none','important')});
-          tiles.on('tileerror', () => active && setMapError(true));
+          tiles.on('tileload',()=>{
+            if(!reportedLive){reportedLive=true;mapsWithLiveTiles+=1}
+            clearTimeout(tileHealthTimer);
+            if(active)setMapError(false);
+          });
           const marker = L.circleMarker([site.lat,site.lng],{radius:index ? 14 : 12,color:'#fff',weight:3,fillColor:index ? '#16858c' : '#8d6f58',fillOpacity:.88}).addTo(map);
           marker.bindTooltip(index ? 'Moss + algae projection' : 'Current baseline',{direction:'top',offset:[0,-10]});
           siteMarkers.current[index] = marker;
@@ -137,6 +148,7 @@ export default function MossExperience() {
     }).catch(() => setMapError(true));
     return () => {
       active = false;
+      tileHealthTimers.forEach(clearTimeout);
       resizeObserver?.disconnect();
       leafletMaps.current.forEach(map => map.remove());
       leafletMaps.current = [];
@@ -277,6 +289,8 @@ function Locations({totalUnits,setTotalUnits,mossEfficiency,algaeEfficiency,hour
     if(!locationsMapNode.current||locationsMap.current)return;
     let active=true;
     let resizeObserver:ResizeObserver|null=null;
+    let tileHealthTimer:ReturnType<typeof setTimeout>|null=null;
+    setLocationsMapError(false);
     import('leaflet').then(({default:L})=>{
       if(!active||!locationsMapNode.current)return;
       try {
@@ -284,7 +298,7 @@ function Locations({totalUnits,setTotalUnits,mossEfficiency,algaeEfficiency,hour
         L.control.zoom({position:'bottomleft'}).addTo(map);
         map.createPane('offlineMap');
         const offlinePane=map.getPane('offlineMap');
-        if(offlinePane)offlinePane.style.zIndex='250';
+        if(offlinePane)offlinePane.style.zIndex='150';
         const offlineMap=L.imageOverlay('/bengaluru-map.webp',[[12.811801316582617,77.431640625],[13.06877673435769,77.6953125]],{pane:'offlineMap',interactive:false});
         offlineMap.on('load',()=>{
           const image=offlineMap.getElement();
@@ -294,8 +308,14 @@ function Locations({totalUnits,setTotalUnits,mossEfficiency,algaeEfficiency,hour
         });
         offlineMap.addTo(map);
         const tiles=L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap contributors'}).addTo(map);
+        let receivedLiveTile=false;
+        tileHealthTimer=setTimeout(()=>{if(active&&!receivedLiveTile)setLocationsMapError(true)},7000);
         tiles.on('tileloadstart',(event:any)=>{event.tile.style.setProperty('max-width','none','important');event.tile.style.setProperty('max-height','none','important')});
-        tiles.on('tileerror',()=>active&&setLocationsMapError(true));
+        tiles.on('tileload',()=>{
+          receivedLiveTile=true;
+          if(tileHealthTimer)clearTimeout(tileHealthTimer);
+          if(active)setLocationsMapError(false);
+        });
         map.fitBounds(CANDIDATE_SITES.map(point=>[point.lat,point.lng] as [number,number]),{padding:[42,42],maxZoom:12});
         locationsLeaflet.current=L;
         locationsMap.current=map;
@@ -308,6 +328,7 @@ function Locations({totalUnits,setTotalUnits,mossEfficiency,algaeEfficiency,hour
     }).catch(()=>setLocationsMapError(true));
     return()=>{
       active=false;
+      if(tileHealthTimer)clearTimeout(tileHealthTimer);
       resizeObserver?.disconnect();
       locationsMap.current?.remove();
       locationsMap.current=null;
