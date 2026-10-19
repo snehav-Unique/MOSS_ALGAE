@@ -1,7 +1,7 @@
 'use client';
 
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {Activity, ArrowDown, BarChart3, CheckCircle2, Crosshair, FlaskConical, Home, Leaf, LoaderCircle, MapPin, MapPinned, Radio, ShieldCheck, Wind, X} from 'lucide-react';
+import {Activity, ArrowDown, BarChart3, CheckCircle2, Crosshair, FlaskConical, Home, LoaderCircle, MapPin, MapPinned, Radio, ShieldCheck, Wind, X} from 'lucide-react';
 import {Area, AreaChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis} from 'recharts';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
@@ -155,7 +155,9 @@ export default function MossExperience() {
 
   return <main className="experience">
     <aside className="rail" aria-label="Primary navigation">
-      <button className="monogram" onClick={() => setView('home')} aria-label="Moss home"><Leaf size={22}/><span>M/A</span></button>
+      <button className="monogram" onClick={() => setView('home')} aria-label="Moss and algae home">
+        <img src="/biofilter-emblem.png" alt="Moss and algae biofilter emblem"/>
+      </button>
       <nav>
         <button className={view === 'home' ? 'active' : ''} onClick={() => setView('home')}><Home size={18}/><span>HOME</span></button>
         <button className={view === 'twin' ? 'active' : ''} onClick={() => setView('twin')}><FlaskConical size={18}/><span>DIG TWIN</span></button>
