@@ -4,7 +4,10 @@ import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from .model import capture, local_balance, uncertainty, lifecycle, optimize, staged_capture
+try:
+    from .model import capture, local_balance, uncertainty, lifecycle, optimize, staged_capture
+except ImportError:
+    from model import capture, local_balance, uncertainty, lifecycle, optimize, staged_capture
 
 app=FastAPI(title='MOSS–ALGAE INDIA',version='0.1.0')
 app.add_middleware(CORSMiddleware,allow_origins=os.getenv('CORS_ORIGINS','http://127.0.0.1:3000,http://localhost:3000,http://127.0.0.1:3001,http://localhost:3001').split(','),allow_methods=['GET','POST'],allow_headers=['Content-Type'])
