@@ -4,7 +4,7 @@ import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {Activity, ArrowDown, BarChart3, CheckCircle2, Crosshair, FlaskConical, Home, LoaderCircle, MapPin, MapPinned, Radio, ShieldCheck, Wind, X} from 'lucide-react';
 import {Area, AreaChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis} from 'recharts';
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
+const API = process.env.NEXT_PUBLIC_API_URL || '';
 const INITIAL_SITE = {lat: 12.9716, lng: 77.5946};
 type Air = {pm25:number; pm10:number; no2:number; co:number; aqi:number; time:string};
 type CandidateSite = {id:string; name:string; context:string; lat:number; lng:number};
