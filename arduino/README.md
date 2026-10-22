@@ -43,11 +43,20 @@ This guide details how to integrate your **Robocraze MQ-135** (Air Quality / Gas
 
 ## 2. Hardware Bill of Materials (BOM)
 
+### Supported controller connections
+
+| Controller | Wi-Fi | Bluetooth | Wired USB serial |
+| :--- | :---: | :---: | :---: |
+| **ESP32** | Yes | Yes (Classic SPP) | Yes |
+| **Arduino Uno / Nano / Mega** | No | No | Yes |
+
+The dashboard identifies both the controller and transport in every reading. Invalid combinations, such as Arduino + Bluetooth, are rejected by the API instead of being mislabeled as live hardware.
+
 | Component | Quantity | Purpose |
 | :--- | :--- | :--- |
 | **Robocraze MQ-135 Air Quality Sensor Module** | 2 | 1 for **Inlet** (dirty air entering), 1 for **Outlet** (clean air exiting) |
 | **Robocraze DHT22 Module** | 1 | Chamber microclimate (Temperature & Relative Humidity) |
-| **Arduino Uno / Nano / Mega** (or ESP32) | 1 | Microcontroller for ADC sampling & data transmission |
+| **Arduino Uno / Nano / Mega or ESP32** | 1 | Arduino uses wired USB only; ESP32 can use wired USB, Wi-Fi, or Bluetooth |
 | **Jumper Wires** | ~10 | Male-to-Female / Male-to-Male jumper cables |
 | **External 5V Power Adapter (Recommended)** | 1 | Supplies sufficient current for both MQ-135 heating elements |
 
@@ -108,6 +117,14 @@ In Arduino IDE, go to **Tools** > **Manage Libraries...** and install:
    ```
 5. **Close the Arduino Serial Monitor** before starting the Python bridge (otherwise the serial port will be locked).
 
+### ESP32 sketch selection
+
+- Wired USB: `arduino/moss_algae_esp32.ino`
+- Wi-Fi direct HTTP: `arduino/moss_algae_esp32_wifi.ino`
+- Bluetooth Classic serial: `arduino/moss_algae_esp32_bluetooth.ino`
+
+For Wi-Fi, set the network credentials and backend LAN URL inside the sketch. For Bluetooth, pair `MOSS_ALGAE_ESP32` first and use the created serial port with the bridge.
+
 ---
 
 ## 6. Running the Sensor Bridge
@@ -125,6 +142,10 @@ python3 backend/sensor_bridge.py
 # Or specify your port explicitly:
 python3 backend/sensor_bridge.py --port /dev/cu.usbserial-110   # macOS
 python3 backend/sensor_bridge.py --port COM3                   # Windows
+
+# ESP32 wired or paired Bluetooth serial:
+python3 backend/sensor_bridge.py --board esp32 --transport wired --port COM3
+python3 backend/sensor_bridge.py --board esp32 --transport bluetooth --port COM4
 ```
 
 ### Testing Without Hardware (Mock Mode)

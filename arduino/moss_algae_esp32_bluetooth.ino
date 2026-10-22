@@ -113,7 +113,9 @@ void loop() {
   jsonPayload += "\"efficiency\":" + String(efficiency, 2) + ",";
   jsonPayload += "\"temperature\":" + (dht_valid ? String(temperature, 1) : "null") + ",";
   jsonPayload += "\"humidity\":" + (dht_valid ? String(humidity, 1) : "null") + ",";
-  jsonPayload += "\"device_id\":\"esp32_bluetooth\"";
+  jsonPayload += "\"device_id\":\"esp32_bluetooth\",";
+  jsonPayload += "\"board_type\":\"esp32\",";
+  jsonPayload += "\"transport\":\"bluetooth\"";
   jsonPayload += "}";
 
   // Transmit over Bluetooth Serial

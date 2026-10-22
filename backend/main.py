@@ -6,7 +6,8 @@ from datetime import datetime, timezone
 import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+from typing import Literal
 
 try:
     import serial
@@ -122,15 +123,35 @@ def economics(p:Economics):return {'discounted_cost_inr':lifecycle(**p.model_dum
 class SensorReading(BaseModel):
     inlet_ppm: float = Field(ge=0, description="Raw input air gas concentration (MQ-135 #1)")
     outlet_ppm: float = Field(ge=0, description="Purified output air gas concentration (MQ-135 #2)")
-    efficiency: float = Field(default=None, ge=0, le=100, description="Calculated single-pass efficiency %")
-    temperature: float = Field(default=None, description="Chamber temperature in Celsius (DHT22)")
-    humidity: float = Field(default=None, description="Chamber relative humidity % (DHT22)")
+    efficiency: float | None = Field(default=None, ge=0, le=100, description="Calculated single-pass efficiency %")
+    temperature: float | None = Field(default=None, description="Chamber temperature in Celsius (DHT22)")
+    humidity: float | None = Field(default=None, description="Chamber relative humidity % (DHT22)")
     device_id: str = Field(default="robocraze_chamber_01", description="Microcontroller or station ID")
+    board_type: Literal["arduino", "esp32", "simulator"] = "arduino"
+    transport: Literal["wired", "wifi", "bluetooth", "simulation"] = "wired"
+
+    @model_validator(mode="after")
+    def validate_board_transport(self):
+        allowed = {
+            "arduino": {"wired"},
+            "esp32": {"wired", "wifi", "bluetooth"},
+            "simulator": {"simulation"},
+        }
+        if self.transport not in allowed[self.board_type]:
+            raise ValueError(f"{self.board_type} does not support {self.transport} telemetry")
+        return self
 
 sensor_telemetry_history: list = []
 latest_sensor_reading: dict = None
+latest_sensor_received_at: float | None = None
 
-def evaluate_chamber_health(temperature: float, humidity: float) -> dict:
+DEVICE_CAPABILITIES = {
+    "esp32": ["wifi", "bluetooth", "wired"],
+    "arduino": ["wired"],
+    "simulator": ["simulation"],
+}
+
+def evaluate_chamber_health(temperature: float | None, humidity: float | None) -> dict:
     moss_status = "Optimal"
     moss_alert = None
     if humidity is not None:
@@ -252,7 +273,7 @@ async def test_telegram_alert():
 
 @app.post('/api/sensors/reading')
 def ingest_sensor_reading(reading: SensorReading):
-    global latest_sensor_reading
+    global latest_sensor_reading, latest_sensor_received_at
     # Calculate measured efficiency: (inlet - outlet) / inlet * 100
     eff = reading.efficiency
     if eff is None:
@@ -271,11 +292,14 @@ def ingest_sensor_reading(reading: SensorReading):
         "temperature": round(reading.temperature, 1) if reading.temperature is not None else None,
         "humidity": round(reading.humidity, 1) if reading.humidity is not None else None,
         "device_id": reading.device_id,
+        "board_type": reading.board_type,
+        "transport": reading.transport,
         "timestamp": timestamp,
         "health": health
     }
 
     latest_sensor_reading = data
+    latest_sensor_received_at = time.monotonic()
     sensor_telemetry_history.append(data)
     if len(sensor_telemetry_history) > 60:
         sensor_telemetry_history.pop(0)
@@ -305,6 +329,8 @@ hardware_serial_state = {
     "device_name": None,
     "baud": 115200,
     "last_seen": None,
+    "board_type": None,
+    "transport": None,
     "scanned_ports": []
 }
 
@@ -351,13 +377,25 @@ def serial_auto_scanner_loop():
                                     payload = json.loads(line)
                                     if "inlet_ppm" in payload and "outlet_ppm" in payload:
                                         hardware_serial_state["last_seen"] = datetime.now(timezone.utc).isoformat()
+                                        payload_device = str(payload.get("device_id", "")).lower()
+                                        is_bluetooth = (
+                                            "bluetooth" in candidate_port.lower()
+                                            or "bluetooth" in candidate_desc.lower()
+                                            or "moss_algae" in candidate_port.lower()
+                                        )
+                                        board_type = "esp32" if "esp32" in payload_device or "esp32" in candidate_desc.lower() or is_bluetooth else "arduino"
+                                        transport = "bluetooth" if is_bluetooth else "wired"
+                                        hardware_serial_state["board_type"] = board_type
+                                        hardware_serial_state["transport"] = transport
                                         reading = SensorReading(
                                             inlet_ppm=float(payload["inlet_ppm"]),
                                             outlet_ppm=float(payload["outlet_ppm"]),
                                             efficiency=float(payload["efficiency"]) if payload.get("efficiency") is not None else None,
                                             temperature=float(payload["temperature"]) if payload.get("temperature") is not None else None,
                                             humidity=float(payload["humidity"]) if payload.get("humidity") is not None else None,
-                                            device_id=f"physical_arduino_{candidate_port.split('/')[-1]}"
+                                            device_id=payload.get("device_id") or f"physical_{board_type}_{candidate_port.split('/')[-1]}",
+                                            board_type=board_type,
+                                            transport=transport,
                                         )
                                         ingest_sensor_reading(reading)
                                 except json.JSONDecodeError:
@@ -366,10 +404,14 @@ def serial_auto_scanner_loop():
                     # Device disconnected or port busy
                     hardware_serial_state["active"] = False
                     hardware_serial_state["port"] = None
+                    hardware_serial_state["board_type"] = None
+                    hardware_serial_state["transport"] = None
                     time.sleep(2.0)
             else:
                 hardware_serial_state["active"] = False
                 hardware_serial_state["port"] = None
+                hardware_serial_state["board_type"] = None
+                hardware_serial_state["transport"] = None
                 time.sleep(2.0)
         except Exception:
             time.sleep(2.5)
@@ -379,24 +421,32 @@ threading.Thread(target=serial_auto_scanner_loop, daemon=True).start()
 
 @app.get('/api/sensors/live')
 def get_live_sensors():
+    reading_age_seconds = time.monotonic() - latest_sensor_received_at if latest_sensor_received_at is not None else None
+    connected = reading_age_seconds is not None and reading_age_seconds <= 10.0
     return {
-        "connected": latest_sensor_reading is not None,
+        "connected": connected,
         "hardware": hardware_serial_state,
         "latest": latest_sensor_reading,
         "history": sensor_telemetry_history,
-        "history_count": len(sensor_telemetry_history)
+        "history_count": len(sensor_telemetry_history),
+        "reading_age_seconds": round(reading_age_seconds, 1) if reading_age_seconds is not None else None,
+        "capabilities": DEVICE_CAPABILITIES,
     }
 
 @app.post('/api/sensors/simulate')
 def simulate_sensor_tick():
-    """Generates realistic test telemetry for demonstration and UI testing."""
+    """Generate one lightweight, correlated telemetry sample for UI testing."""
     import random
-    base_inlet = round(random.uniform(380.0, 520.0), 2)
-    # realistic biofilter reduction: 30% to 45%
-    reduction_pct = random.uniform(32.0, 44.0)
+    previous = latest_sensor_reading if latest_sensor_reading and latest_sensor_reading.get("board_type") == "simulator" else None
+    previous_inlet = previous["inlet_ppm"] if previous else 450.0
+    previous_efficiency = previous["efficiency"] if previous else 38.0
+    base_inlet = round(max(350.0, min(550.0, previous_inlet + random.uniform(-9.0, 9.0))), 2)
+    reduction_pct = max(30.0, min(46.0, previous_efficiency + random.uniform(-1.2, 1.2)))
     outlet = round(base_inlet * (1.0 - reduction_pct / 100.0), 2)
-    temp = round(random.uniform(22.5, 25.8), 1)
-    hum = round(random.uniform(68.0, 78.5), 1)
+    previous_temp = previous.get("temperature") if previous else 24.0
+    previous_hum = previous.get("humidity") if previous else 73.0
+    temp = round(max(21.0, min(28.0, previous_temp + random.uniform(-0.2, 0.2))), 1)
+    hum = round(max(62.0, min(82.0, previous_hum + random.uniform(-0.6, 0.6))), 1)
 
     reading = SensorReading(
         inlet_ppm=base_inlet,
@@ -404,7 +454,9 @@ def simulate_sensor_tick():
         efficiency=round(reduction_pct, 2),
         temperature=temp,
         humidity=hum,
-        device_id="simulated_robocraze_kit"
+        device_id="simulated_robocraze_kit",
+        board_type="simulator",
+        transport="simulation",
     )
     return ingest_sensor_reading(reading)
 

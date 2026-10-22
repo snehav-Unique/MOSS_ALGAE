@@ -142,7 +142,9 @@ void loop() {
     jsonPayload += "\"efficiency\":" + String(efficiency, 2) + ",";
     jsonPayload += "\"temperature\":" + (dht_valid ? String(temperature, 1) : "null") + ",";
     jsonPayload += "\"humidity\":" + (dht_valid ? String(humidity, 1) : "null") + ",";
-    jsonPayload += "\"device_id\":\"esp32_wifi_" + WiFi.localIP().toString() + "\"";
+    jsonPayload += "\"device_id\":\"esp32_wifi_" + WiFi.localIP().toString() + "\",";
+    jsonPayload += "\"board_type\":\"esp32\",";
+    jsonPayload += "\"transport\":\"wifi\"";
     jsonPayload += "}";
 
     int httpCode = http.POST(jsonPayload);

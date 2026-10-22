@@ -66,7 +66,9 @@ def run_mock_stream(api_url: str):
                 "efficiency": eff,
                 "temperature": temp,
                 "humidity": hum,
-                "device_id": "simulated_chamber_rig"
+                "device_id": "simulated_chamber_rig",
+                "board_type": "simulator",
+                "transport": "simulation"
             }
 
             ok = post_to_backend(payload, api_url)
@@ -77,7 +79,7 @@ def run_mock_stream(api_url: str):
             print("\nStopped mock stream.")
             break
 
-def run_serial_stream(port: str, baud: int, api_url: str):
+def run_serial_stream(port: str, baud: int, api_url: str, board: str, transport: str):
     try:
         import serial
         import serial.tools.list_ports
@@ -120,6 +122,9 @@ def run_serial_stream(port: str, baud: int, api_url: str):
             if line.startswith("{") and line.endswith("}"):
                 try:
                     payload = json.loads(line)
+                    payload["board_type"] = board
+                    payload["transport"] = transport
+                    payload.setdefault("device_id", f"{board}_{transport}_{port}")
                     ok = post_to_backend(payload, api_url)
                     inlet = payload.get("inlet_ppm", "N/A")
                     outlet = payload.get("outlet_ppm", "N/A")
@@ -148,9 +153,14 @@ if __name__ == "__main__":
     parser.add_argument("--baud", type=int, default=DEFAULT_BAUD, help="Baud rate (default 115200)")
     parser.add_argument("--api-url", type=str, default=DEFAULT_API_URL, help="FastAPI endpoint URL")
     parser.add_argument("--mock", action="store_true", help="Run simulated telemetry generator")
+    parser.add_argument("--board", choices=["arduino", "esp32"], default="arduino", help="Connected controller type")
+    parser.add_argument("--transport", choices=["wired", "bluetooth"], default="wired", help="Serial transport; Bluetooth is ESP32-only")
     args = parser.parse_args()
+
+    if args.board == "arduino" and args.transport != "wired":
+        parser.error("Arduino supports wired USB serial only; use --board esp32 for Bluetooth")
 
     if args.mock:
         run_mock_stream(args.api_url)
     else:
-        run_serial_stream(args.port, args.baud, args.api_url)
+        run_serial_stream(args.port, args.baud, args.api_url, args.board, args.transport)

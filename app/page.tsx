@@ -481,6 +481,8 @@ type SensorTelemetry = {
   temperature: number | null;
   humidity: number | null;
   device_id: string;
+  board_type: 'arduino' | 'esp32' | 'simulator';
+  transport: 'wired' | 'wifi' | 'bluetooth' | 'simulation';
   timestamp: string;
   health: {
     moss_status: string;
@@ -496,6 +498,8 @@ type HardwareState = {
   device_name: string | null;
   baud: number;
   last_seen: string | null;
+  board_type: 'arduino' | 'esp32' | null;
+  transport: 'wired' | 'bluetooth' | null;
   scanned_ports: Array<{device: string; description: string}>;
 };
 
@@ -506,7 +510,11 @@ function ChamberSensors({onApplyEfficiency}:{onApplyEfficiency:(eff:number)=>voi
   const [connected, setConnected] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [simulating, setSimulating] = useState(false);
+  const [simulationRunning, setSimulationRunning] = useState(false);
   const [autoPoll, setAutoPoll] = useState(true);
+  const [selectedBoard, setSelectedBoard] = useState<'esp32'|'arduino'>('esp32');
+  const [selectedTransport, setSelectedTransport] = useState<'wired'|'wifi'|'bluetooth'>('wifi');
+  const simulationRequestRef = useRef(false);
 
   // --- Mass Capture Odometer State ---
   const [airflow, setAirflow] = useState(50); // m³/h blower airflow
@@ -681,12 +689,18 @@ function ChamberSensors({onApplyEfficiency}:{onApplyEfficiency:(eff:number)=>voi
     }
   };
 
-  const handleSimulateTick = async () => {
+  const handleSimulateTick = useCallback(async () => {
+    if (simulationRequestRef.current) return;
+    simulationRequestRef.current = true;
     setSimulating(true);
     try {
       const res = await fetch(`${API}/api/sensors/simulate`, {method: 'POST'});
       if (res.ok) {
-        await fetchLive();
+        const data = await res.json();
+        const sample = data.recorded as SensorTelemetry;
+        setConnected(true);
+        setLive(sample);
+        setHistory(curr => [...curr.filter(item => item.timestamp !== sample.timestamp).slice(-59), sample]);
       } else {
         throw new Error('Simulation endpoint failed');
       }
@@ -701,6 +715,8 @@ function ChamberSensors({onApplyEfficiency}:{onApplyEfficiency:(eff:number)=>voi
         temperature: 24.1,
         humidity: 71.4,
         device_id: 'browser_sim_kit',
+        board_type: 'simulator',
+        transport: 'simulation',
         timestamp: new Date().toISOString(),
         health: {
           moss_status: 'Optimal Hydration',
@@ -713,8 +729,27 @@ function ChamberSensors({onApplyEfficiency}:{onApplyEfficiency:(eff:number)=>voi
       setLive(mock);
       setHistory(curr => [...curr.slice(-30), mock]);
     } finally {
+      simulationRequestRef.current = false;
       setSimulating(false);
     }
+  }, []);
+
+  useEffect(() => {
+    if (!simulationRunning) return;
+    void handleSimulateTick();
+    const timer = setInterval(() => void handleSimulateTick(), 1500);
+    return () => clearInterval(timer);
+  }, [simulationRunning, handleSimulateTick]);
+
+  const realTelemetryActive = connected && Boolean(live && live.board_type !== 'simulator');
+
+  useEffect(() => {
+    if (simulationRunning && realTelemetryActive) setSimulationRunning(false);
+  }, [simulationRunning, realTelemetryActive]);
+
+  const selectBoard = (board:'esp32'|'arduino') => {
+    setSelectedBoard(board);
+    if (board === 'arduino') setSelectedTransport('wired');
   };
 
   const chartData = useMemo(() => {
@@ -742,8 +777,8 @@ function ChamberSensors({onApplyEfficiency}:{onApplyEfficiency:(eff:number)=>voi
         <button className="sensor-btn secondary" onClick={fetchLive} disabled={refreshing}>
           <RefreshCw className={refreshing ? 'spin' : ''} size={15}/> {refreshing ? 'Reading…' : 'Refresh'}
         </button>
-        <button className="sensor-btn accent" onClick={handleSimulateTick} disabled={simulating}>
-          <Play size={15}/> {simulating ? 'Simulating…' : 'Simulate Sensor Tick'}
+        <button className="sensor-btn accent" onClick={() => setSimulationRunning(active => !active)} disabled={realTelemetryActive}>
+          {simulationRunning ? <Square size={15}/> : <Play size={15}/>} {simulationRunning ? 'Stop Simulation' : 'Run Live Simulation'}
         </button>
         <button className="sensor-btn" onClick={() => startTrialRun(600)} disabled={trialActive} title="Start full 10-minute research trial run">
           <FileSpreadsheet size={15}/> {trialActive ? 'Trial Active…' : 'Start 10-Min Trial Run'}
@@ -760,23 +795,46 @@ function ChamberSensors({onApplyEfficiency}:{onApplyEfficiency:(eff:number)=>voi
       </div>
     </header>
 
+    <div className="device-compatibility" aria-label="Supported controller and connection modes">
+      <div className="device-choice">
+        <span>CONTROLLER</span>
+        <div className="device-toggle">
+          <button className={selectedBoard === 'esp32' ? 'active' : ''} onClick={() => selectBoard('esp32')}><Cpu size={16}/> ESP32</button>
+          <button className={selectedBoard === 'arduino' ? 'active' : ''} onClick={() => selectBoard('arduino')}><Cpu size={16}/> Arduino</button>
+        </div>
+      </div>
+      <div className="device-choice transport-choice">
+        <span>CONNECTION</span>
+        <div className="device-toggle">
+          {(['wifi','bluetooth','wired'] as const).map(mode => {
+            const supported = selectedBoard === 'esp32' || mode === 'wired';
+            return <button key={mode} disabled={!supported} className={selectedTransport === mode ? 'active' : ''} onClick={() => supported && setSelectedTransport(mode)}>{mode === 'wifi' ? 'Wi-Fi' : mode === 'bluetooth' ? 'Bluetooth' : 'Wired USB'}</button>;
+          })}
+        </div>
+      </div>
+      <div className="compatibility-summary">
+        <strong>{selectedBoard === 'esp32' ? 'ESP32: Wi-Fi + Bluetooth + wired' : 'Arduino: wired only'}</strong>
+        <small>{selectedBoard === 'esp32' ? `Ready for ${selectedTransport === 'wifi' ? 'direct HTTP telemetry' : selectedTransport === 'bluetooth' ? 'paired serial telemetry' : 'USB serial telemetry'}.` : 'Arduino telemetry is accepted only through USB serial at 115200 baud.'}</small>
+      </div>
+    </div>
+
     <div className="connection-banner">
       <div className={`connection-badge ${hardware?.active ? 'connected' : connected ? 'connected' : 'waiting'}`}>
         <span className="live-dot"/>
         <strong>
           {hardware?.active
-            ? `Physical Arduino Connected: ${hardware.port}`
+            ? `${hardware.board_type === 'esp32' ? 'ESP32' : 'Arduino'} connected via ${hardware.transport === 'bluetooth' ? 'Bluetooth' : 'wired USB'}: ${hardware.port}`
             : connected
-            ? `Hardware Stream Active (${live?.device_id || 'Telemetry'})`
-            : 'Auto-Scanner Searching for Arduino USB...'}
+            ? `${live?.board_type === 'simulator' ? 'Simulation' : live?.board_type === 'esp32' ? 'ESP32' : 'Arduino'} stream active (${live?.transport || 'wired'})`
+            : 'Waiting for ESP32, Arduino, or simulation...'}
         </strong>
         <span>·</span>
         <small>
           {hardware?.active
-            ? `${hardware.device_name || 'USB Serial Board'} @ 115200 baud`
+            ? `${hardware.device_name || 'Serial Board'} @ 115200 baud`
             : hardware?.scanned_ports?.length
-            ? `${hardware.scanned_ports.length} USB ports scanned · Plug Arduino into Mac`
-            : 'Listening on USB Serial / ESP32 WiFi'}
+            ? `${hardware.scanned_ports.length} serial ports scanned`
+            : 'ESP32: Wi-Fi / Bluetooth / wired · Arduino: wired'}
         </small>
       </div>
       <div className="connection-detail">
@@ -784,7 +842,7 @@ function ChamberSensors({onApplyEfficiency}:{onApplyEfficiency:(eff:number)=>voi
           ? 'Physical Sensors Live (Dual MQ-135 + DHT22)'
           : live?.timestamp
           ? `Latest: ${new Date(live.timestamp).toLocaleTimeString()}`
-          : 'Plug Arduino into USB to stream real sensors'}
+          : 'Connect hardware or start live simulation'}
       </div>
     </div>
 
@@ -971,45 +1029,45 @@ function ChamberSensors({onApplyEfficiency}:{onApplyEfficiency:(eff:number)=>voi
           </div>
         </div>
 
-        <table className="hardware-pins-table" aria-label="Arduino pin mapping">
+        <table className="hardware-pins-table" aria-label={`${selectedBoard} pin mapping`}>
           <thead>
             <tr>
               <th>Sensor Module</th>
               <th>Pin</th>
-              <th>Arduino Target</th>
+              <th>{selectedBoard === 'esp32' ? 'ESP32 Target' : 'Arduino Target'}</th>
             </tr>
           </thead>
           <tbody>
             <tr>
               <td><strong>Robocraze MQ-135 #1</strong> (Inlet)</td>
               <td>AOUT / VCC / GND</td>
-              <td><strong>Pin A0</strong> / 5V / GND</td>
+              <td><strong>{selectedBoard === 'esp32' ? 'GPIO34' : 'Pin A0'}</strong> / 5V / GND</td>
             </tr>
             <tr>
               <td><strong>Robocraze MQ-135 #2</strong> (Outlet)</td>
               <td>AOUT / VCC / GND</td>
-              <td><strong>Pin A1</strong> / 5V / GND</td>
+              <td><strong>{selectedBoard === 'esp32' ? 'GPIO35' : 'Pin A1'}</strong> / 5V / GND</td>
             </tr>
             <tr>
               <td><strong>Robocraze DHT22</strong> (Temp & Hum)</td>
               <td>DATA / VCC / GND</td>
-              <td><strong>Digital Pin 2</strong> / 5V / GND</td>
+              <td><strong>{selectedBoard === 'esp32' ? 'GPIO4' : 'Digital Pin 2'}</strong> / 5V / GND</td>
             </tr>
             <tr>
-              <td><strong>USB Serial Interface</strong></td>
+              <td><strong>{selectedTransport === 'wifi' ? 'Wi-Fi HTTP' : selectedTransport === 'bluetooth' ? 'Bluetooth SPP' : 'USB Serial Interface'}</strong></td>
               <td>TX / RX</td>
-              <td><strong>115200 Baud</strong></td>
+              <td><strong>{selectedTransport === 'wifi' ? 'POST /api/sensors/reading' : '115200 Baud'}</strong></td>
             </tr>
           </tbody>
         </table>
 
         <div className="chamber-alert-box" style={{marginTop: '20px', background: '#f5faf6', borderColor: '#538257', color: '#274b29'}}>
-          <strong>🔌 Physical Sensors Plug-and-Play Guide:</strong>
+          <strong>🔌 {selectedBoard === 'esp32' ? 'ESP32' : 'Arduino'} setup:</strong>
           <ol style={{paddingLeft: '18px', margin: '8px 0 0', lineHeight: '1.6'}}>
-            <li>Upload <a href="file:///Users/saitriveni/moss%20algae/MOSS_ALGAE/arduino/moss_algae_sensors.ino" style={{color: '#16858c', textDecoration: 'underline'}}>arduino/moss_algae_sensors.ino</a> to your Arduino using Arduino IDE.</li>
-            <li>Connect MQ-135 #1 to <strong>Pin A0</strong>, MQ-135 #2 to <strong>Pin A1</strong>, and DHT22 to <strong>Digital Pin 2</strong>.</li>
-            <li><strong>Close the Arduino IDE Serial Monitor</strong> (macOS only allows one program to access the USB port).</li>
-            <li>Plug the Arduino USB cable into your Mac. The dashboard auto-detects the board and streams real data!</li>
+            <li>Upload <strong>{selectedBoard === 'arduino' ? 'arduino/moss_algae_sensors.ino' : selectedTransport === 'wifi' ? 'arduino/moss_algae_esp32_wifi.ino' : selectedTransport === 'bluetooth' ? 'arduino/moss_algae_esp32_bluetooth.ino' : 'arduino/moss_algae_esp32.ino'}</strong> using Arduino IDE.</li>
+            <li>Connect MQ-135 #1 to <strong>{selectedBoard === 'esp32' ? 'GPIO34' : 'A0'}</strong>, MQ-135 #2 to <strong>{selectedBoard === 'esp32' ? 'GPIO35' : 'A1'}</strong>, and DHT22 to <strong>{selectedBoard === 'esp32' ? 'GPIO4' : 'D2'}</strong>.</li>
+            {selectedTransport === 'wifi' ? <li>Set Wi-Fi credentials and the backend LAN URL in the sketch; the ESP32 posts directly to the dashboard API.</li> : selectedTransport === 'bluetooth' ? <li>Pair <strong>MOSS_ALGAE_ESP32</strong>, then run the bridge with <strong>--board esp32 --transport bluetooth</strong> on its serial port.</li> : <li>Close Serial Monitor, connect USB, and run the bridge with <strong>--board {selectedBoard} --transport wired</strong>.</li>}
+            <li>The live banner will show the detected board and transport from each telemetry payload.</li>
           </ol>
         </div>
       </article>

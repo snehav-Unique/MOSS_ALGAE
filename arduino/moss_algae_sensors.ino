@@ -138,7 +138,7 @@ void loop() {
   Serial.print(F(",\"humidity\":"));
   if (dht_valid) Serial.print(humidity, 1);
   else Serial.print(F("null"));
-  Serial.println(F("}"));
+  Serial.println(F(",\"device_id\":\"arduino_wired\",\"board_type\":\"arduino\",\"transport\":\"wired\"}"));
   digitalWrite(LED_BUILTIN, LOW);
 
   // Transmit telemetry every 2000ms
