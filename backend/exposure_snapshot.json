@@ -1,0 +1,688 @@
+{
+ "radius_m": 500,
+ "sites": {
+  "peenya": {
+   "school": 0,
+   "health": 1,
+   "bus_stop": 2,
+   "features": [
+    {
+     "kind": "bus_stop",
+     "lat": 13.028529,
+     "lng": 77.519548,
+     "name": "TVS Cross Peenya 2nd Stage"
+    },
+    {
+     "kind": "health",
+     "lat": 13.028073,
+     "lng": 77.523186,
+     "name": "Esi Hospital Peenya 1st Stage"
+    },
+    {
+     "kind": "bus_stop",
+     "lat": 13.028703,
+     "lng": 77.519779,
+     "name": "TVS Cross Peenya"
+    }
+   ]
+  },
+  "yeshwanthpur": {
+   "school": 1,
+   "health": 4,
+   "bus_stop": 10,
+   "features": [
+    {
+     "kind": "bus_stop",
+     "lat": 13.02894,
+     "lng": 77.539502,
+     "name": "Goraguntepalya"
+    },
+    {
+     "kind": "bus_stop",
+     "lat": 13.026732,
+     "lng": 77.543371,
+     "name": "MEI Factory"
+    },
+    {
+     "kind": "health",
+     "lat": 13.027534,
+     "lng": 77.539705,
+     "name": "Mysore Hospital"
+    },
+    {
+     "kind": "health",
+     "lat": 13.027027,
+     "lng": 77.539442,
+     "name": "Prakash Clinic"
+    },
+    {
+     "kind": "bus_stop",
+     "lat": 13.028085,
+     "lng": 77.541765,
+     "name": "Goraguntepalya"
+    },
+    {
+     "kind": "bus_stop",
+     "lat": 13.026695,
+     "lng": 77.544137,
+     "name": "MEI Factory"
+    },
+    {
+     "kind": "bus_stop",
+     "lat": 13.026578,
+     "lng": 77.543916,
+     "name": "MEI Factory"
+    },
+    {
+     "kind": "bus_stop",
+     "lat": 13.029416,
+     "lng": 77.540216,
+     "name": "Guragunte Palya Cross"
+    },
+    {
+     "kind": "bus_stop",
+     "lat": 13.029507,
+     "lng": 77.540112,
+     "name": "Goraguntepalya"
+    },
+    {
+     "kind": "bus_stop",
+     "lat": 13.029613,
+     "lng": 77.540125,
+     "name": "Goraguntepalya"
+    },
+    {
+     "kind": "bus_stop",
+     "lat": 13.029708,
+     "lng": 77.540144,
+     "name": "Goraguntepalya"
+    },
+    {
+     "kind": "bus_stop",
+     "lat": 13.028762,
+     "lng": 77.539867,
+     "name": "Goraguntepalaya"
+    },
+    {
+     "kind": "school",
+     "lat": 13.030312,
+     "lng": 77.544426,
+     "name": "National Public School Yeshwantpur"
+    },
+    {
+     "kind": "health",
+     "lat": 13.027751,
+     "lng": 77.542992,
+     "name": "Sparsh Hospital"
+    },
+    {
+     "kind": "health",
+     "lat": 13.028289,
+     "lng": 77.539146,
+     "name": "People Tree Hospitals"
+    }
+   ]
+  },
+  "majestic": {
+   "school": 1,
+   "health": 2,
+   "bus_stop": 10,
+   "features": [
+    {
+     "kind": "bus_stop",
+     "lat": 12.977568,
+     "lng": 77.570766,
+     "name": "Railway Station, Majestic"
+    },
+    {
+     "kind": "bus_stop",
+     "lat": 12.977908,
+     "lng": 77.572394,
+     "name": "Kempegowda Bus Station"
+    },
+    {
+     "kind": "bus_stop",
+     "lat": 12.980285,
+     "lng": 77.571659,
+     "name": "Khodays Circle"
+    },
+    {
+     "kind": "bus_stop",
+     "lat": 12.97681,
+     "lng": 77.57399,
+     "name": "Platform 16"
+    },
+    {
+     "kind": "bus_stop",
+     "lat": 12.976496,
+     "lng": 77.573741,
+     "name": "Platform 15"
+    },
+    {
+     "kind": "bus_stop",
+     "lat": 12.976818,
+     "lng": 77.573713,
+     "name": "Platform 16"
+    },
+    {
+     "kind": "bus_stop",
+     "lat": 12.977,
+     "lng": 77.573318,
+     "name": "Platform 17"
+    },
+    {
+     "kind": "bus_stop",
+     "lat": 12.976762,
+     "lng": 77.573316,
+     "name": "Platform 18"
+    },
+    {
+     "kind": "health",
+     "lat": 12.973271,
+     "lng": 77.572536,
+     "name": "Sreeniwasa Hospital"
+    },
+    {
+     "kind": "bus_stop",
+     "lat": 12.977507,
+     "lng": 77.570768,
+     "name": "Railway Station, Majestic"
+    },
+    {
+     "kind": "bus_stop",
+     "lat": 12.976488,
+     "lng": 77.573746,
+     "name": null
+    },
+    {
+     "kind": "health",
+     "lat": 12.978694,
+     "lng": 77.574461,
+     "name": "Ramakrishna Clinic"
+    },
+    {
+     "kind": "school",
+     "lat": 12.972654,
+     "lng": 77.571726,
+     "name": "Orchids The International School - Majestic"
+    }
+   ]
+  },
+  "hebbal": {
+   "school": 2,
+   "health": 0,
+   "bus_stop": 3,
+   "features": [
+    {
+     "kind": "bus_stop",
+     "lat": 13.035853,
+     "lng": 77.596982,
+     "name": "Amarajyothi Nagara"
+    },
+    {
+     "kind": "bus_stop",
+     "lat": 13.03679,
+     "lng": 77.597454,
+     "name": "Cholanayakanahalli"
+    },
+    {
+     "kind": "bus_stop",
+     "lat": 13.03415,
+     "lng": 77.59938,
+     "name": "Chamundi Nagara"
+    },
+    {
+     "kind": "school",
+     "lat": 13.032787,
+     "lng": 77.59655,
+     "name": "Sukrupa School"
+    },
+    {
+     "kind": "school",
+     "lat": 13.037041,
+     "lng": 77.597931,
+     "name": null
+    }
+   ]
+  },
+  "kr-puram": {
+   "school": 0,
+   "health": 1,
+   "bus_stop": 0,
+   "features": [
+    {
+     "kind": "health",
+     "lat": 12.996956,
+     "lng": 77.696641,
+     "name": "Kaya Skin Clinic"
+    }
+   ]
+  },
+  "whitefield": {
+   "school": 13,
+   "health": 9,
+   "bus_stop": 4,
+   "features": [
+    {
+     "kind": "bus_stop",
+     "lat": 12.970536,
+     "lng": 77.749962,
+     "name": "Whitefield"
+    },
+    {
+     "kind": "school",
+     "lat": 12.97246,
+     "lng": 77.750668,
+     "name": "Maple Bear Canadian Pre-School"
+    },
+    {
+     "kind": "bus_stop",
+     "lat": 12.969302,
+     "lng": 77.749998,
+     "name": "Whitefield"
+    },
+    {
+     "kind": "health",
+     "lat": 12.969668,
+     "lng": 77.750731,
+     "name": "Cure N Care Homoeopathic clinic"
+    },
+    {
+     "kind": "bus_stop",
+     "lat": 12.97401,
+     "lng": 77.750405,
+     "name": "Saibaba General Hospital"
+    },
+    {
+     "kind": "bus_stop",
+     "lat": 12.969662,
+     "lng": 77.752801,
+     "name": "Gandhipura"
+    },
+    {
+     "kind": "school",
+     "lat": 12.968087,
+     "lng": 77.748764,
+     "name": "Vivero International Preschool"
+    },
+    {
+     "kind": "school",
+     "lat": 12.968029,
+     "lng": 77.748855,
+     "name": "Little Millenium"
+    },
+    {
+     "kind": "health",
+     "lat": 12.969029,
+     "lng": 77.750026,
+     "name": "Sai Dental Clinic"
+    },
+    {
+     "kind": "health",
+     "lat": 12.968523,
+     "lng": 77.749477,
+     "name": "Vasan Eye Care"
+    },
+    {
+     "kind": "health",
+     "lat": 12.972777,
+     "lng": 77.750639,
+     "name": "Tata MD"
+    },
+    {
+     "kind": "health",
+     "lat": 12.967875,
+     "lng": 77.750048,
+     "name": "Dr. Agarwal's Eye Hospital"
+    },
+    {
+     "kind": "health",
+     "lat": 12.968535,
+     "lng": 77.749518,
+     "name": "Srinivasa Clinic"
+    },
+    {
+     "kind": "health",
+     "lat": 12.970139,
+     "lng": 77.750248,
+     "name": "MS Clinic, Diagnostic & Scan Center"
+    },
+    {
+     "kind": "school",
+     "lat": 12.966934,
+     "lng": 77.749735,
+     "name": "Inventure Preschool"
+    },
+    {
+     "kind": "school",
+     "lat": 12.970672,
+     "lng": 77.747563,
+     "name": "St. Thomas School"
+    },
+    {
+     "kind": "school",
+     "lat": 12.973741,
+     "lng": 77.748248,
+     "name": "Cottolengo Special School"
+    },
+    {
+     "kind": "school",
+     "lat": 12.970481,
+     "lng": 77.750453,
+     "name": "Sisa Indo-Swiss Academy"
+    },
+    {
+     "kind": "school",
+     "lat": 12.970228,
+     "lng": 77.747984,
+     "name": "The Bangalore School"
+    },
+    {
+     "kind": "school",
+     "lat": 12.96956,
+     "lng": 77.748507,
+     "name": "Seven Senses School Whitefield"
+    },
+    {
+     "kind": "health",
+     "lat": 12.965917,
+     "lng": 77.749386,
+     "name": "Svastha Hospital"
+    },
+    {
+     "kind": "health",
+     "lat": 12.9689,
+     "lng": 77.749495,
+     "name": "Pushpa Nursing Home"
+    },
+    {
+     "kind": "school",
+     "lat": 12.96916,
+     "lng": 77.745529,
+     "name": "The Foundation"
+    },
+    {
+     "kind": "school",
+     "lat": 12.970562,
+     "lng": 77.748249,
+     "name": "Naavi"
+    },
+    {
+     "kind": "school",
+     "lat": 12.969801,
+     "lng": 77.753316,
+     "name": "Government School"
+    },
+    {
+     "kind": "school",
+     "lat": 12.972506,
+     "lng": 77.749527,
+     "name": "Greenwood High Pre-school"
+    }
+   ]
+  },
+  "silk-board": {
+   "school": 1,
+   "health": 4,
+   "bus_stop": 20,
+   "features": [
+    {
+     "kind": "bus_stop",
+     "lat": 12.921494,
+     "lng": 77.621198,
+     "name": "Madiwala Market"
+    },
+    {
+     "kind": "health",
+     "lat": 12.916008,
+     "lng": 77.619357,
+     "name": "Karanth Speciality Hospital"
+    },
+    {
+     "kind": "health",
+     "lat": 12.914787,
+     "lng": 77.624762,
+     "name": "Aswad Hospital"
+    },
+    {
+     "kind": "bus_stop",
+     "lat": 12.916797,
+     "lng": 77.623563,
+     "name": "Silk Board"
+    },
+    {
+     "kind": "bus_stop",
+     "lat": 12.920193,
+     "lng": 77.620586,
+     "name": "Madiwala"
+    },
+    {
+     "kind": "bus_stop",
+     "lat": 12.916714,
+     "lng": 77.621409,
+     "name": "Silk Board"
+    },
+    {
+     "kind": "bus_stop",
+     "lat": 12.916042,
+     "lng": 77.62391,
+     "name": "Silk Board Junction"
+    },
+    {
+     "kind": "health",
+     "lat": 12.915785,
+     "lng": 77.619405,
+     "name": "Ismile Dental & Oral Health Care Centre"
+    },
+    {
+     "kind": "bus_stop",
+     "lat": 12.916944,
+     "lng": 77.621255,
+     "name": "Central Silk Board (Towards Madivala)"
+    },
+    {
+     "kind": "health",
+     "lat": 12.920831,
+     "lng": 77.620178,
+     "name": "S.M.S. Nursing Home"
+    },
+    {
+     "kind": "bus_stop",
+     "lat": 12.917519,
+     "lng": 77.624503,
+     "name": "Central Silk Board"
+    },
+    {
+     "kind": "bus_stop",
+     "lat": 12.917505,
+     "lng": 77.624401,
+     "name": "Central Silk Board"
+    },
+    {
+     "kind": "bus_stop",
+     "lat": 12.919674,
+     "lng": 77.620951,
+     "name": "Madiwala"
+    },
+    {
+     "kind": "bus_stop",
+     "lat": 12.919823,
+     "lng": 77.620844,
+     "name": "Madiwala"
+    },
+    {
+     "kind": "bus_stop",
+     "lat": 12.920003,
+     "lng": 77.620727,
+     "name": "Madiwala"
+    },
+    {
+     "kind": "bus_stop",
+     "lat": 12.918269,
+     "lng": 77.623118,
+     "name": "Silk Board TTMC"
+    },
+    {
+     "kind": "bus_stop",
+     "lat": 12.92054,
+     "lng": 77.620764,
+     "name": "Madiwala"
+    },
+    {
+     "kind": "bus_stop",
+     "lat": 12.917741,
+     "lng": 77.623698,
+     "name": "Silk Board"
+    },
+    {
+     "kind": "bus_stop",
+     "lat": 12.916816,
+     "lng": 77.622368,
+     "name": "Silk Board"
+    },
+    {
+     "kind": "bus_stop",
+     "lat": 12.916858,
+     "lng": 77.622283,
+     "name": "Silk Board"
+    },
+    {
+     "kind": "bus_stop",
+     "lat": 12.921454,
+     "lng": 77.621121,
+     "name": "Madivala"
+    },
+    {
+     "kind": "bus_stop",
+     "lat": 12.915817,
+     "lng": 77.624037,
+     "name": "Silk Board Junction"
+    },
+    {
+     "kind": "bus_stop",
+     "lat": 12.915895,
+     "lng": 77.623987,
+     "name": "Silk Board Junction"
+    },
+    {
+     "kind": "bus_stop",
+     "lat": 12.915979,
+     "lng": 77.623947,
+     "name": "Silk Board Junction"
+    },
+    {
+     "kind": "school",
+     "lat": 12.916801,
+     "lng": 77.619929,
+     "name": "St. Mira's School"
+    }
+   ]
+  },
+  "jayanagar": {
+   "school": 4,
+   "health": 6,
+   "bus_stop": 6,
+   "features": [
+    {
+     "kind": "health",
+     "lat": 12.923432,
+     "lng": 77.592337,
+     "name": "BMTC Hospital"
+    },
+    {
+     "kind": "bus_stop",
+     "lat": 12.926336,
+     "lng": 77.597237,
+     "name": "Carmel Convent"
+    },
+    {
+     "kind": "bus_stop",
+     "lat": 12.923055,
+     "lng": 77.593399,
+     "name": "Jayanagara 4th T Block"
+    },
+    {
+     "kind": "bus_stop",
+     "lat": 12.927096,
+     "lng": 77.592405,
+     "name": "Sanjay Gandhi Hospital"
+    },
+    {
+     "kind": "health",
+     "lat": 12.922632,
+     "lng": 77.593595,
+     "name": "Amplifon"
+    },
+    {
+     "kind": "health",
+     "lat": 12.926767,
+     "lng": 77.596502,
+     "name": "Sunrise Diagnostics"
+    },
+    {
+     "kind": "bus_stop",
+     "lat": 12.926969,
+     "lng": 77.592928,
+     "name": "Sanjay Gandhi Hospital"
+    },
+    {
+     "kind": "health",
+     "lat": 12.925523,
+     "lng": 77.593775,
+     "name": "Sunayana Eye Hospital"
+    },
+    {
+     "kind": "bus_stop",
+     "lat": 12.926724,
+     "lng": 77.597052,
+     "name": "Carmel Convent"
+    },
+    {
+     "kind": "school",
+     "lat": 12.924322,
+     "lng": 77.595128,
+     "name": "Sudarshan Vidya Mandir Pre Primary School"
+    },
+    {
+     "kind": "health",
+     "lat": 12.921801,
+     "lng": 77.593311,
+     "name": "Oncquest Laboratories"
+    },
+    {
+     "kind": "bus_stop",
+     "lat": 12.923417,
+     "lng": 77.589519,
+     "name": "Jayanagara 18th Main"
+    },
+    {
+     "kind": "health",
+     "lat": 12.926118,
+     "lng": 77.592549,
+     "name": "Jayanagar General Hospital"
+    },
+    {
+     "kind": "school",
+     "lat": 12.925358,
+     "lng": 77.594022,
+     "name": "Sudarshan Vidya Mandir"
+    },
+    {
+     "kind": "school",
+     "lat": 12.926455,
+     "lng": 77.598123,
+     "name": "Lourdes Convent School"
+    },
+    {
+     "kind": "school",
+     "lat": 12.924001,
+     "lng": 77.596829,
+     "name": "Presidency Early years"
+    }
+   ]
+  }
+ },
+ "source": "https://overpass-api.de/api/interpreter",
+ "retrieved_at": "2026-10-22T14:43:38.572845+00:00",
+ "note": "OpenStreetMap features; completeness varies by area. Counts are receptors, not population."
+}

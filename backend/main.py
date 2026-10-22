@@ -1,4 +1,6 @@
+import asyncio
 import os
+import statistics
 import threading
 import time
 import json
@@ -19,9 +21,28 @@ except ImportError:
 
 try:
     from .model import capture, local_balance, uncertainty, lifecycle, optimize, staged_capture, series_efficiency
+    from .exposure import SITES, fetch_exposure, load_snapshot
+    from .assistant import AssistantUnavailable, ask
+    from . import gemini_assistant
 except ImportError:
     from model import capture, local_balance, uncertainty, lifecycle, optimize, staged_capture, series_efficiency
+    from exposure import SITES, fetch_exposure, load_snapshot
+    from assistant import AssistantUnavailable, ask
+    import gemini_assistant
 
+
+def load_env_file(path):
+    """Read KEY=value lines from a local .env (git-ignored); real environment variables take precedence."""
+    try:
+        lines = open(path, encoding='utf-8').read().splitlines()
+    except OSError:
+        return
+    for line in lines:
+        key, sep, value = line.strip().partition('=')
+        if sep and key and not key.startswith('#') and value.strip() and key.strip() not in os.environ:
+            os.environ[key.strip()] = value.strip().strip('"').strip("'")
+
+load_env_file(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '.env'))
 
 app=FastAPI(title='MOSS–ALGAE INDIA',version='0.1.0')
 app.add_middleware(CORSMiddleware,allow_origins=['*'],allow_methods=['GET','POST'],allow_headers=['Content-Type'])
@@ -119,6 +140,201 @@ class Economics(BaseModel):
     discount:float=Field(ge=0,le=1)
 @app.post('/api/economics')
 def economics(p:Economics):return {'discounted_cost_inr':lifecycle(**p.model_dump()),'benefit_monetization':None,'note':'No health benefits monetized without validated exposure-response evidence'}
+
+# --- SENSITIVE RECEPTORS NEAR CANDIDATE SITES (OpenStreetMap / Overpass) ---
+exposure_cache: dict = {'data': None, 'fetched': 0.0}
+
+@app.get('/api/exposure')
+async def exposure():
+    if exposure_cache['data'] and time.time() - exposure_cache['fetched'] < 86400:
+        return exposure_cache['data']
+    # Overpass can take over a minute; answer from the snapshot now and refresh in the background.
+    if not exposure_cache.get('refreshing'):
+        exposure_cache['refreshing'] = True
+        asyncio.create_task(refresh_exposure())
+    return exposure_cache['data'] or {**load_snapshot(), 'mode': 'snapshot'}
+
+async def refresh_exposure():
+    try:
+        exposure_cache.update(data=await fetch_exposure(attempts=1), fetched=time.time())
+    except RuntimeError:
+        pass
+    finally:
+        exposure_cache['refreshing'] = False
+
+# --- CITY HOTSPOTS FROM MEASURED STATIONS (OpenAQ v3) ---
+BENGALURU_CENTER = (12.9716, 77.5946)
+NAAQS_PM25_24H = 60
+WHO_PM25_24H = 15
+STALE_AFTER_HOURS = 3
+hotspot_cache: dict = {'data': None, 'fetched': 0.0}
+
+def assess_stations(stations: list, now: datetime) -> list:
+    """Adds age, staleness, outlier and hotspot flags. Thresholds are 24-h standards applied to latest values (indicative)."""
+    values = [s['pm25'] for s in stations if s['pm25'] is not None and s['pm25'] >= 0]
+    median = statistics.median(values) if values else None
+    for s in stations:
+        flags = []
+        measured = datetime.fromisoformat(s['measured_at'].replace('Z', '+00:00')) if s.get('measured_at') else None
+        s['age_hours'] = round((now - measured).total_seconds() / 3600, 1) if measured else None
+        if s['age_hours'] is None or s['age_hours'] > STALE_AFTER_HOURS: flags.append('stale')
+        if s['pm25'] is None or s['pm25'] < 0 or s['pm25'] > 1000: flags.append('invalid')
+        elif median and len(values) >= 4 and s['pm25'] > 3 * median: flags.append('outlier')
+        s['flags'] = flags
+        usable = not flags
+        s['status'] = ('hotspot' if s['pm25'] > NAAQS_PM25_24H else 'elevated' if s['pm25'] > WHO_PM25_24H else 'within_who') if usable else 'unverified'
+    return stations
+
+@app.get('/api/hotspots')
+async def hotspots():
+    if hotspot_cache['data'] and time.time() - hotspot_cache['fetched'] < 600:
+        return hotspot_cache['data']
+    now = datetime.now(timezone.utc)
+    key = os.getenv('OPENAQ_API_KEY')
+    if not key:
+        return {'status': 'OpenAQ configuration required', 'stations': [], 'checked_at': now.isoformat()}
+    headers = {'X-API-Key': key}
+    try:
+        async with httpx.AsyncClient(timeout=20, headers=headers) as client:
+            r = await client.get('https://api.openaq.org/v3/locations', params={'coordinates': f'{BENGALURU_CENTER[0]},{BENGALURU_CENTER[1]}', 'radius': 25000, 'parameters_id': 2, 'limit': 100})
+            r.raise_for_status()
+            locations = [l for l in r.json().get('results', []) if not l.get('isMobile')][:25]
+            gate = asyncio.Semaphore(5)
+
+            async def latest(location):
+                pm_sensors = {s['id'] for s in location.get('sensors', []) if s.get('parameter', {}).get('name') == 'pm25'}
+                async with gate:
+                    resp = await client.get(f"https://api.openaq.org/v3/locations/{location['id']}/latest")
+                if resp.status_code != 200:
+                    return None
+                rows = [row for row in resp.json().get('results', []) if row.get('sensorsId') in pm_sensors]
+                if not rows:
+                    return None
+                row = max(rows, key=lambda x: x.get('datetime', {}).get('utc') or '')
+                return {
+                    'id': location['id'],
+                    'name': location.get('name'),
+                    'provider': (location.get('provider') or {}).get('name'),
+                    'reference_grade': bool(location.get('isMonitor')),
+                    'lat': location['coordinates']['latitude'],
+                    'lng': location['coordinates']['longitude'],
+                    'pm25': row.get('value'),
+                    'measured_at': row.get('datetime', {}).get('utc'),
+                    'source_url': f"https://api.openaq.org/v3/locations/{location['id']}/latest",
+                }
+
+            stations = [s for s in await asyncio.gather(*(latest(l) for l in locations)) if s]
+    except (httpx.HTTPError, KeyError, ValueError):
+        raise HTTPException(502, 'OpenAQ upstream unavailable or invalid response; no replacement readings generated')
+    data = {
+        'status': 'ok' if stations else 'No PM2.5 stations returned',
+        'stations': assess_stations(stations, now),
+        'checked_at': now.isoformat(),
+        'thresholds': {'naaqs_24h': NAAQS_PM25_24H, 'who_24h': WHO_PM25_24H, 'stale_after_hours': STALE_AFTER_HOURS},
+        'note': 'Latest hourly values compared against 24-hour standards; indicative only. No interpolation.',
+    }
+    hotspot_cache.update(data=data, fetched=time.time())
+    return data
+
+# --- PLANNING ASSISTANT (Claude with the platform's own tools) ---
+SITE_NAMES = {s['id']: s['name'] for s in SITES}
+CRITERIA = ['cost efficiency', 'exposure', 'feasibility', 'equity']
+
+class ChatTurn(BaseModel):
+    role: str = Field(pattern='^(user|assistant)$')
+    text: str = Field(min_length=1, max_length=4000)
+
+class AssistantRequest(BaseModel):
+    history: list[ChatTurn] = Field(min_length=1, max_length=20)
+    planner: dict | None = None
+
+def assistant_handlers(planner: dict | None) -> dict:
+    async def get_planner_state(_):
+        if not planner:
+            return {'error': 'The Planner has not been opened in this browser session yet, so no candidate scores are loaded. Ask the user to open the Planner tab once.'}
+        return planner
+
+    async def optimize_deployment(args):
+        if not planner or not planner.get('candidates'):
+            return await get_planner_state(args)
+        candidates = [{'id': c['id'], 'cost': c['cost'], 'scores': c['scores']} for c in planner['candidates']]
+        weights = args['weights']
+        base = optimize(candidates, weights, args['budget_inr'])
+        cost = {c['id']: c['cost'] for c in candidates}
+        def names(ids): return [SITE_NAMES.get(i, i) for i in ids]
+        shifts = []
+        for i in range(4):
+            alt = optimize(candidates, [w * 1.2 if j == i else w for j, w in enumerate(weights)], args['budget_inr'])
+            shifts.append({'criterion_raised_20pct': CRITERIA[i], 'adds': names(set(alt['selected']) - set(base['selected'])), 'drops': names(set(base['selected']) - set(alt['selected']))})
+        return {'selected': names(base['selected']), 'spend_inr': sum(cost[i] for i in base['selected']), 'budget_inr': args['budget_inr'],
+                'pods': len(base['selected']) * planner.get('pods_per_site', 0), 'weighted_score': round(base['utility'], 3), 'sensitivity': shifts}
+
+    async def lifecycle_cost(args):
+        energy = args['pods'] * args['fan_watts_per_pod'] * args['full_power_hours_per_day'] * 365 / 1000
+        total = lifecycle(args['capex_inr'], energy, args['tariff_inr_per_kwh'], args['pods'] * args['maintenance_inr_per_pod_year'], args['years'], args['discount_rate'])
+        return {'discounted_lifecycle_cost_inr': round(total), 'annual_energy_kwh': round(energy, 1), 'note': 'No health benefits monetized.'}
+
+    async def get_city_hotspots(_):
+        data = await hotspots()
+        stations = data.get('stations', [])
+        counts = {k: sum(1 for s in stations if s['status'] == k) for k in ('hotspot', 'elevated', 'within_who', 'unverified')}
+        worst = sorted(stations, key=lambda s: -(s['pm25'] or 0))[:10]
+        top = [{k: s.get(k) for k in ('name', 'pm25', 'status', 'age_hours', 'flags', 'provider')} for s in worst]
+        return {'status': data.get('status'), 'counts': counts, 'worst_stations': top, 'note': data.get('note')}
+
+    async def get_site_receptors(_):
+        data = await exposure()
+        return {'radius_m': data['radius_m'], 'source': data.get('mode', data['source']), 'retrieved_at': data['retrieved_at'],
+                'sites': {SITE_NAMES.get(k, k): {'schools': v['school'], 'health_facilities': v['health'], 'bus_stops': v['bus_stop']} for k, v in data['sites'].items()}}
+
+    async def get_site_air(args):
+        site = next(s for s in SITES if s['id'] == args['site_id'])
+        params = {'latitude': site['lat'], 'longitude': site['lng'], 'current': 'pm2_5,us_aqi', 'hourly': 'pm2_5', 'forecast_days': 3, 'timezone': 'auto'}
+        async with httpx.AsyncClient(timeout=20) as client:
+            r = await client.get('https://air-quality-api.open-meteo.com/v1/air-quality', params=params)
+            r.raise_for_status()
+        data = r.json()
+        now = data['current']['time']
+        hours = [(t, v) for t, v in zip(data['hourly']['time'], data['hourly']['pm2_5']) if v is not None and t >= now][:72]
+        peak, clean = max(hours, key=lambda h: h[1]), min(hours, key=lambda h: h[1])
+        def readable(t):  # Local time with the weekday spelled out, so the model never computes it.
+            return datetime.fromisoformat(t).strftime('%a %d %b, %I:%M %p').replace(' 0', ' ')
+        return {'site': site['name'], 'source': 'Open-Meteo modeled (coarse grid)', 'timezone': data.get('timezone'),
+                'current': {'pm25_ug_m3': data['current']['pm2_5'], 'us_aqi': data['current']['us_aqi'], 'time': readable(now)},
+                'forecast_72h': {'peak': {'pm25_ug_m3': peak[1], 'time': readable(peak[0])}, 'cleanest': {'pm25_ug_m3': clean[1], 'time': readable(clean[0])}, 'mean_ug_m3': round(sum(v for _, v in hours) / len(hours), 1)}}
+
+    return {f.__name__: f for f in (get_planner_state, optimize_deployment, lifecycle_cost, get_city_hotspots, get_site_receptors, get_site_air)}
+
+@app.post('/api/assistant')
+async def assistant(req: AssistantRequest):
+    if req.history[-1].role != 'user':
+        raise HTTPException(422, 'The last turn must be a user question.')
+    history, handlers = [t.model_dump() for t in req.history], assistant_handlers(req.planner)
+    # Gemini is the default provider; Claude is used only when just an Anthropic key is configured.
+    use_claude = bool(os.getenv('ANTHROPIC_API_KEY') or os.getenv('ANTHROPIC_AUTH_TOKEN')) and not gemini_assistant.has_key()
+    try:
+        return await (ask(history, handlers) if use_claude else gemini_assistant.ask(history, handlers))
+    except AssistantUnavailable as e:
+        raise HTTPException(503, str(e))
+
+# --- CITIZEN SUGGESTIONS (in-memory; resets when the API restarts) ---
+class Suggestion(BaseModel):
+    lat: float = Field(ge=12.6, le=13.4)
+    lng: float = Field(ge=77.3, le=77.9)
+    reason: str = Field(min_length=3, max_length=280)
+
+suggestions: list = []
+
+@app.post('/api/suggestions')
+def add_suggestion(s: Suggestion):
+    entry = {**s.model_dump(), 'received_at': datetime.now(timezone.utc).isoformat()}
+    suggestions.append(entry)
+    del suggestions[:-200]
+    return {'status': 'ok', 'count': len(suggestions)}
+
+@app.get('/api/suggestions')
+def list_suggestions():
+    return {'suggestions': suggestions, 'note': 'Stored in memory for this API instance only.'}
 
 # --- REAL-TIME CHAMBER SENSOR TELEMETRY (MQ-135 & DHT22) ---
 class SensorReading(BaseModel):

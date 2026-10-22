@@ -12,6 +12,19 @@ Next.js / TypeScript / Tailwind / shadcn-style Radix button / MapLibre / Rechart
 
 Checks: `npm run build`, `python -m unittest backend.test_model -v`.
 
+In development `npm run dev` proxies `/api` to `BACKEND_URL` (default `http://127.0.0.1:8000`), so no extra frontend configuration is needed.
+
+## Decision features
+
+- **Hotspots** — `/api/hotspots` discovers every OpenAQ PM2.5 station within 25 km of central Bengaluru (needs `OPENAQ_API_KEY`), flags stale (>3 h) and outlier (>3× network median) readings, and only counts verified readings as hotspots. Without a key the view falls back to clearly labeled Open-Meteo modeled values.
+- **Exposure** — `/api/exposure` counts schools, hospitals/clinics and bus stops within 500 m of each candidate area from OpenStreetMap (Overpass). `public/exposure-snapshot.json` is the offline fallback; refresh it with `python backend/exposure.py`.
+- **Planner** — budget optimizer over cost, exposure, feasibility and equity via `/api/optimize` (with ±20% weight sensitivity) and discounted lifecycle cost via `/api/economics`. Feasibility, equity and setup costs are editable team assumptions.
+- **Forecast** — 72-hour Open-Meteo PM2.5 forecast turned into a boost/eco operating schedule; reports energy saved and capture retained versus always-on, and can push its duty cycle into Planner economics.
+- **Time-lapse** — the Twin view replays the past 7 days hour by hour on both synced maps.
+- **Planning assistant** — `/api/assistant` runs Google Gemini (`gemini-3.5-flash-lite`, override with `GEMINI_MODEL`) with the platform's own tools: Planner state, optimizer, lifecycle economics, hotspots, receptors and forecast. Set `GEMINI_API_KEY` on the API service (free key from https://aistudio.google.com/apikey); the key never reaches the browser. If only `ANTHROPIC_API_KEY` is set, Claude is used instead.
+- **Deployment brief** — Planner → "Deployment brief (PDF)" renders a printable report with an optional AI executive summary; use the browser's Save as PDF.
+- **Citizen page** — `/citizen` is a mobile page in English, ಕನ್ನಡ and हिंदी: PM2.5 near you, advice by group, cleanest 2-hour window, nearest proposed pod area, and a "suggest a pod location" form (`/api/suggestions`, in-memory) whose entries appear on the Planner map.
+
 ## Evidence boundaries
 
 No live AQ readings, measured efficiencies, transport coefficients, benefits or station scores ship with this project. OpenAQ requires a key and explicitly selected location IDs. The API retains measurement timestamps, raw sensor identity, parameter units, location provider, retrieval time, and source URL. No readings are spatially interpolated to metro locations. CPCB is a documented source reference, not an implemented authenticated connector. History period selection is preparatory: historical ingestion and aggregation are not implemented, and no fake time series is displayed.
