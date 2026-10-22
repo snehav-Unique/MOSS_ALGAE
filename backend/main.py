@@ -2,6 +2,7 @@ import os
 import threading
 import time
 import json
+import math
 from datetime import datetime, timezone
 import httpx
 from fastapi import FastAPI, HTTPException
@@ -17,9 +18,9 @@ except ImportError:
     HAS_SERIAL = False
 
 try:
-    from .model import capture, local_balance, uncertainty, lifecycle, optimize, staged_capture
+    from .model import capture, local_balance, uncertainty, lifecycle, optimize, staged_capture, series_efficiency
 except ImportError:
-    from model import capture, local_balance, uncertainty, lifecycle, optimize, staged_capture
+    from model import capture, local_balance, uncertainty, lifecycle, optimize, staged_capture, series_efficiency
 
 
 app=FastAPI(title='MOSS–ALGAE INDIA',version='0.1.0')
@@ -433,31 +434,60 @@ def get_live_sensors():
         "capabilities": DEVICE_CAPABILITIES,
     }
 
+class SimulationInputs(BaseModel):
+    moss_efficiency_pct: float = Field(ge=0, le=100)
+    algae_efficiency_pct: float = Field(ge=0, le=100)
+    airflow_m3_h: float = Field(gt=0)
+    chamber_volume_m3: float = Field(gt=0)
+    elapsed_seconds: float = Field(ge=0)
+    step_seconds: float = Field(default=1.5, gt=0, le=10)
+    previous_outlet_ppm: float | None = Field(default=None, ge=0)
+
 @app.post('/api/sensors/simulate')
-def simulate_sensor_tick():
-    """Generate one lightweight, correlated telemetry sample for UI testing."""
-    import random
-    previous = latest_sensor_reading if latest_sensor_reading and latest_sensor_reading.get("board_type") == "simulator" else None
-    previous_inlet = previous["inlet_ppm"] if previous else 450.0
-    previous_efficiency = previous["efficiency"] if previous else 38.0
-    base_inlet = round(max(350.0, min(550.0, previous_inlet + random.uniform(-9.0, 9.0))), 2)
-    reduction_pct = max(30.0, min(46.0, previous_efficiency + random.uniform(-1.2, 1.2)))
-    outlet = round(base_inlet * (1.0 - reduction_pct / 100.0), 2)
-    previous_temp = previous.get("temperature") if previous else 24.0
-    previous_hum = previous.get("humidity") if previous else 73.0
-    temp = round(max(21.0, min(28.0, previous_temp + random.uniform(-0.2, 0.2))), 1)
-    hum = round(max(62.0, min(82.0, previous_hum + random.uniform(-0.6, 0.6))), 1)
+def simulate_sensor_tick(inputs: SimulationInputs):
+    """Advance an autonomous deterministic chamber scenario by one model step."""
+    phase = inputs.elapsed_seconds
+    inlet = (
+        450.0
+        + 35.0 * math.sin(2.0 * math.pi * phase / 120.0)
+        + 10.0 * math.sin(2.0 * math.pi * phase / 45.0)
+    )
+    temperature = 25.0 + 2.0 * math.sin(2.0 * math.pi * phase / 300.0)
+    humidity = 72.0 + 6.0 * math.sin(2.0 * math.pi * phase / 240.0 + math.pi / 3.0)
+    combined_efficiency = series_efficiency(
+        inputs.moss_efficiency_pct / 100.0,
+        inputs.algae_efficiency_pct / 100.0,
+    )
+    target_outlet = inlet * (1.0 - combined_efficiency)
+    residence_time_seconds = inputs.chamber_volume_m3 / inputs.airflow_m3_h * 3600.0
+    if inputs.previous_outlet_ppm is None:
+        outlet = inlet
+    else:
+        response_fraction = 1.0 - math.exp(-inputs.step_seconds / residence_time_seconds)
+        outlet = inputs.previous_outlet_ppm + (target_outlet - inputs.previous_outlet_ppm) * response_fraction
+    transient_efficiency = max(0.0, (inlet - outlet) / inlet * 100.0)
 
     reading = SensorReading(
-        inlet_ppm=base_inlet,
+        inlet_ppm=inlet,
         outlet_ppm=outlet,
-        efficiency=round(reduction_pct, 2),
-        temperature=temp,
-        humidity=hum,
-        device_id="simulated_robocraze_kit",
+        efficiency=transient_efficiency,
+        temperature=temperature,
+        humidity=humidity,
+        device_id="autonomous_two_stage_model",
         board_type="simulator",
         transport="simulation",
     )
-    return ingest_sensor_reading(reading)
+    result = ingest_sensor_reading(reading)
+    result["model"] = {
+        "type": "autonomous_deterministic_chamber",
+        "equation": "C_out[n] = C_out[n-1] + (C_target[n] - C_out[n-1]) * (1 - exp(-dt / (V/Q)))",
+        "inputs": inputs.model_dump(),
+        "profile": "smooth_periodic_urban_inlet_v1",
+        "combined_efficiency_pct": round(combined_efficiency * 100.0, 4),
+        "target_outlet_ppm": round(target_outlet, 4),
+        "residence_time_seconds": round(residence_time_seconds, 4),
+        "randomness": False,
+    }
+    return result
 
 

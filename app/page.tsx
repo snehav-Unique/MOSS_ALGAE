@@ -222,7 +222,7 @@ export default function MossExperience() {
         </article>
       </div>
       <footer className="model-note"><span>MODEL 0.2 / TWO-STAGE</span><p>The future view models moss followed by algae in series. Combined efficiency is 1 − (1 − moss efficiency) × (1 − algae efficiency), preventing double-counting. Both efficiencies require pollutant-specific measurement and field calibration.</p><span>{air?.time ? `DATA ${air.time.replace('T', ' ')}` : 'AWAITING DATA'}</span></footer>
-    </section> : view === 'analysis' ? <Analysis air={air} loading={loading} error={error} units={units} setUnits={setUnits} efficiency={efficiency} setEfficiency={setEfficiency} algaeEfficiency={algaeEfficiency} setAlgaeEfficiency={setAlgaeEfficiency} hours={hours} setHours={setHours}/> : view === 'locations' ? <Locations totalUnits={units} setTotalUnits={setUnits} mossEfficiency={efficiency} algaeEfficiency={algaeEfficiency} hours={hours}/> : <ChamberSensors onApplyEfficiency={eff => { setEfficiency(Math.round(eff)); setView('twin'); }} />}
+    </section> : view === 'analysis' ? <Analysis air={air} loading={loading} error={error} units={units} setUnits={setUnits} efficiency={efficiency} setEfficiency={setEfficiency} algaeEfficiency={algaeEfficiency} setAlgaeEfficiency={setAlgaeEfficiency} hours={hours} setHours={setHours}/> : view === 'locations' ? <Locations totalUnits={units} setTotalUnits={setUnits} mossEfficiency={efficiency} algaeEfficiency={algaeEfficiency} hours={hours}/> : <ChamberSensors mossEfficiency={efficiency} algaeEfficiency={algaeEfficiency} onApplyEfficiency={eff => { setEfficiency(Math.round(eff)); setView('twin'); }} />}
 
   </main>;
 }
@@ -503,7 +503,7 @@ type HardwareState = {
   scanned_ports: Array<{device: string; description: string}>;
 };
 
-function ChamberSensors({onApplyEfficiency}:{onApplyEfficiency:(eff:number)=>void}) {
+function ChamberSensors({mossEfficiency,algaeEfficiency,onApplyEfficiency}:{mossEfficiency:number;algaeEfficiency:number;onApplyEfficiency:(eff:number)=>void}) {
   const [live, setLive] = useState<SensorTelemetry|null>(null);
   const [hardware, setHardware] = useState<HardwareState|null>(null);
   const [history, setHistory] = useState<SensorTelemetry[]>([]);
@@ -515,6 +515,9 @@ function ChamberSensors({onApplyEfficiency}:{onApplyEfficiency:(eff:number)=>voi
   const [selectedBoard, setSelectedBoard] = useState<'esp32'|'arduino'>('esp32');
   const [selectedTransport, setSelectedTransport] = useState<'wired'|'wifi'|'bluetooth'>('wifi');
   const simulationRequestRef = useRef(false);
+  const [simulationError, setSimulationError] = useState('');
+  const simulationElapsedRef = useRef(0);
+  const simulationPreviousOutletRef = useRef<number|null>(null);
 
   // --- Mass Capture Odometer State ---
   const [airflow, setAirflow] = useState(50); // m³/h blower airflow
@@ -693,46 +696,41 @@ function ChamberSensors({onApplyEfficiency}:{onApplyEfficiency:(eff:number)=>voi
     if (simulationRequestRef.current) return;
     simulationRequestRef.current = true;
     setSimulating(true);
+    setSimulationError('');
     try {
-      const res = await fetch(`${API}/api/sensors/simulate`, {method: 'POST'});
+      const res = await fetch(`${API}/api/sensors/simulate`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          moss_efficiency_pct: mossEfficiency,
+          algae_efficiency_pct: algaeEfficiency,
+          airflow_m3_h: airflow,
+          chamber_volume_m3: 1,
+          elapsed_seconds: simulationElapsedRef.current,
+          step_seconds: 1.5,
+          previous_outlet_ppm: simulationPreviousOutletRef.current,
+        })
+      });
       if (res.ok) {
         const data = await res.json();
         const sample = data.recorded as SensorTelemetry;
         setConnected(true);
         setLive(sample);
         setHistory(curr => [...curr.filter(item => item.timestamp !== sample.timestamp).slice(-59), sample]);
+        simulationPreviousOutletRef.current = sample.outlet_ppm;
+        simulationElapsedRef.current += 1.5;
       } else {
-        throw new Error('Simulation endpoint failed');
+        const detail = await res.json().catch(() => null);
+        throw new Error(detail?.detail?.[0]?.msg || 'Model simulation request failed.');
       }
-    } catch {
-      const baseInlet = 420 + Math.random() * 90;
-      const eff = 34 + Math.random() * 8.5;
-      const outlet = baseInlet * (1 - eff / 100);
-      const mock: SensorTelemetry = {
-        inlet_ppm: Math.round(baseInlet * 10) / 10,
-        outlet_ppm: Math.round(outlet * 10) / 10,
-        efficiency: Math.round(eff * 10) / 10,
-        temperature: 24.1,
-        humidity: 71.4,
-        device_id: 'browser_sim_kit',
-        board_type: 'simulator',
-        transport: 'simulation',
-        timestamp: new Date().toISOString(),
-        health: {
-          moss_status: 'Optimal Hydration',
-          moss_alert: null,
-          algae_status: 'Optimal Growth',
-          algae_alert: null
-        }
-      };
-      setConnected(true);
-      setLive(mock);
-      setHistory(curr => [...curr.slice(-30), mock]);
+    } catch (reason:any) {
+      setSimulationError(reason?.message || 'Backend unavailable. No synthetic fallback was generated.');
+      setSimulationRunning(false);
     } finally {
       simulationRequestRef.current = false;
       setSimulating(false);
     }
-  }, []);
+  }, [mossEfficiency, algaeEfficiency, airflow]);
 
   useEffect(() => {
     if (!simulationRunning) return;
@@ -750,6 +748,18 @@ function ChamberSensors({onApplyEfficiency}:{onApplyEfficiency:(eff:number)=>voi
   const selectBoard = (board:'esp32'|'arduino') => {
     setSelectedBoard(board);
     if (board === 'arduino') setSelectedTransport('wired');
+  };
+
+  const toggleSimulation = () => {
+    if (simulationRunning) {
+      setSimulationRunning(false);
+      return;
+    }
+    simulationElapsedRef.current = 0;
+    simulationPreviousOutletRef.current = null;
+    setHistory(curr => curr.filter(item => item.board_type !== 'simulator'));
+    setSimulationError('');
+    setSimulationRunning(true);
   };
 
   const chartData = useMemo(() => {
@@ -775,9 +785,9 @@ function ChamberSensors({onApplyEfficiency}:{onApplyEfficiency:(eff:number)=>voi
       </div>
       <div className="sensors-actions">
         <button className="sensor-btn secondary" onClick={fetchLive} disabled={refreshing}>
-          <RefreshCw className={refreshing ? 'spin' : ''} size={15}/> {refreshing ? 'Reading…' : 'Refresh'}
+          <RefreshCw className={refreshing ? 'spin' : ''} size={15}/> Refresh
         </button>
-        <button className="sensor-btn accent" onClick={() => setSimulationRunning(active => !active)} disabled={realTelemetryActive}>
+        <button className="sensor-btn accent" onClick={toggleSimulation} disabled={realTelemetryActive}>
           {simulationRunning ? <Square size={15}/> : <Play size={15}/>} {simulationRunning ? 'Stop Simulation' : 'Run Live Simulation'}
         </button>
         <button className="sensor-btn" onClick={() => startTrialRun(600)} disabled={trialActive} title="Start full 10-minute research trial run">
@@ -816,6 +826,23 @@ function ChamberSensors({onApplyEfficiency}:{onApplyEfficiency:(eff:number)=>voi
         <strong>{selectedBoard === 'esp32' ? 'ESP32: Wi-Fi + Bluetooth + wired' : 'Arduino: wired only'}</strong>
         <small>{selectedBoard === 'esp32' ? `Ready for ${selectedTransport === 'wifi' ? 'direct HTTP telemetry' : selectedTransport === 'bluetooth' ? 'paired serial telemetry' : 'USB serial telemetry'}.` : 'Arduino telemetry is accepted only through USB serial at 115200 baud.'}</small>
       </div>
+    </div>
+
+    <div className="model-simulation-panel" aria-label="Deterministic simulation inputs">
+      <div className="simulation-heading">
+        <span>ONE-CLICK LIVE SIMULATION</span>
+        <strong>Autonomous smooth model</strong>
+        <small>Press Run Live Simulation—the modeled inlet, microclimate, and chamber response advance automatically without manual values.</small>
+      </div>
+      <div className="simulation-preset"><span>INLET PROFILE</span><strong>Urban cycle</strong><small>Smooth periodic concentration</small></div>
+      <div className="simulation-preset"><span>CHAMBER</span><strong>1.0 m³</strong><small>Residence time V/Q</small></div>
+      <div className="simulation-preset"><span>MICROCLIMATE</span><strong>Automatic</strong><small>Temperature + humidity</small></div>
+      <div className="simulation-equation">
+        <span>CURRENT MODEL INPUTS</span>
+        <strong>Moss {mossEfficiency}% → Algae {algaeEfficiency}%</strong>
+        <small>Combined η = {(combinedStageEfficiency(mossEfficiency / 100, algaeEfficiency / 100) * 100).toFixed(1)}% · Q = {airflow} m³/h · deterministic</small>
+      </div>
+      {simulationError && <p className="simulation-error">{simulationError}</p>}
     </div>
 
     <div className="connection-banner">

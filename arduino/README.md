@@ -151,8 +151,10 @@ python3 backend/sensor_bridge.py --board esp32 --transport bluetooth --port COM4
 ### Testing Without Hardware (Mock Mode)
 If your sensors are not yet wired up and you want to test the full dashboard live:
 ```bash
-python3 backend/sensor_bridge.py --mock
+python3 backend/sensor_bridge.py --mock --inlet-ppm 500 --moss-efficiency 40 --algae-efficiency 25 --airflow-m3-h 50 --chamber-volume-m3 1
 ```
+
+Model mode never generates random readings. It holds the supplied inlet constant and produces a smooth outlet curve toward the two-stage target using the chamber residence time `volume / airflow`.
 
 ---
 

@@ -1,4 +1,5 @@
 import unittest
+import math
 from fastapi.testclient import TestClient
 from backend.main import app, evaluate_chamber_health
 
@@ -51,13 +52,41 @@ class SensorEndpointsTests(unittest.TestCase):
         self.assertEqual(live_data["latest"]["device_id"], "test_arduino")
 
     def test_simulate_endpoint(self):
-        res = self.client.post("/api/sensors/simulate")
+        inputs = {
+            "moss_efficiency_pct": 40.0,
+            "algae_efficiency_pct": 25.0,
+            "airflow_m3_h": 50.0,
+            "chamber_volume_m3": 1.0,
+            "elapsed_seconds": 10.0,
+            "step_seconds": 1.5,
+            "previous_outlet_ppm": 450.0,
+        }
+        res = self.client.post("/api/sensors/simulate", json=inputs)
         self.assertEqual(res.status_code, 200)
         data = res.json()
         self.assertEqual(data["status"], "ok")
-        self.assertGreater(data["recorded"]["inlet_ppm"], 0)
+        expected_inlet = 450.0 + 35.0 * math.sin(2.0 * math.pi * 10.0 / 120.0) + 10.0 * math.sin(2.0 * math.pi * 10.0 / 45.0)
+        target_outlet = expected_inlet * 0.45
+        expected_outlet = 450.0 + (target_outlet - 450.0) * (1.0 - math.exp(-1.5 / 72.0))
+        self.assertAlmostEqual(data["recorded"]["inlet_ppm"], expected_inlet, places=2)
+        self.assertAlmostEqual(data["recorded"]["outlet_ppm"], expected_outlet, places=2)
         self.assertEqual(data["recorded"]["board_type"], "simulator")
         self.assertEqual(data["recorded"]["transport"], "simulation")
+        self.assertFalse(data["model"]["randomness"])
+        self.assertAlmostEqual(data["model"]["target_outlet_ppm"], target_outlet, places=4)
+        self.assertEqual(data["model"]["residence_time_seconds"], 72.0)
+        self.assertEqual(data["model"]["profile"], "smooth_periodic_urban_inlet_v1")
+
+        repeated = self.client.post("/api/sensors/simulate", json=inputs).json()
+        self.assertEqual(repeated["recorded"]["outlet_ppm"], data["recorded"]["outlet_ppm"])
+
+        initial = self.client.post("/api/sensors/simulate", json={**inputs, "elapsed_seconds": 0, "previous_outlet_ppm": None}).json()
+        next_step = self.client.post("/api/sensors/simulate", json={**inputs, "elapsed_seconds": 1.5, "previous_outlet_ppm": initial["recorded"]["outlet_ppm"]}).json()
+        self.assertEqual(initial["recorded"]["inlet_ppm"], initial["recorded"]["outlet_ppm"])
+        self.assertNotEqual(next_step["recorded"]["outlet_ppm"], initial["recorded"]["outlet_ppm"])
+
+    def test_simulation_requires_supplied_inputs(self):
+        self.assertEqual(self.client.post("/api/sensors/simulate").status_code, 422)
 
     def test_board_transport_compatibility(self):
         base = {

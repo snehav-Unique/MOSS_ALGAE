@@ -12,13 +12,14 @@ Usage:
   python backend/sensor_bridge.py --port /dev/cu.usbserial-110 (macOS)
   python backend/sensor_bridge.py --port COM3 (Windows)
 
-  # Run in simulated/mock mode (no Arduino hardware required):
-  python backend/sensor_bridge.py --mock
+  # Run deterministic model mode from explicit inputs (no hardware required):
+  python backend/sensor_bridge.py --mock --inlet-ppm 500 --moss-efficiency 40 --algae-efficiency 25 --airflow-m3-h 50 --chamber-volume-m3 1
 """
 
 import sys
 import time
 import json
+import math
 import argparse
 import urllib.request
 import urllib.error
@@ -42,39 +43,35 @@ def post_to_backend(data: dict, api_url: str = DEFAULT_API_URL) -> bool:
         print(f"⚠️  Error posting to backend: {e}")
         return False
 
-def run_mock_stream(api_url: str):
-    import random
-    print("🌿 Starting MOSS-ALGAE Mock Sensor Stream (Demo Mode)...")
-    print(f"📡 Forwarding simulated telemetry to: {api_url}")
+def run_model_stream(api_url: str, inlet: float, moss_efficiency: float, algae_efficiency: float, airflow: float, chamber_volume: float, temperature: float | None, humidity: float | None):
+    combined_efficiency = 1.0 - (1.0 - moss_efficiency / 100.0) * (1.0 - algae_efficiency / 100.0)
+    target_outlet = inlet * (1.0 - combined_efficiency)
+    residence_time_seconds = chamber_volume / airflow * 3600.0
+    elapsed_seconds = 0.0
+    print("Starting deterministic MOSS-ALGAE model stream...")
+    print(f"Forwarding model-derived telemetry to: {api_url}")
     print("Press Ctrl+C to stop.\n")
 
-    inlet_base = 450.0
     while True:
         try:
-            # Simulate natural fluctuating ambient air pollution
-            inlet = round(inlet_base + random.uniform(-25.0, 35.0), 2)
-            # Living biofilter achieves 30-45% removal efficiency
-            eff = round(random.uniform(34.0, 42.5), 2)
-            outlet = round(inlet * (1.0 - eff / 100.0), 2)
-            # Healthy chamber temperature (22-26 C) and high humidity (68-78% RH)
-            temp = round(23.5 + random.uniform(-1.0, 1.2), 1)
-            hum = round(72.0 + random.uniform(-3.5, 4.0), 1)
-
+            outlet = round(target_outlet + (inlet - target_outlet) * math.exp(-elapsed_seconds / residence_time_seconds), 2)
+            efficiency = round((inlet - outlet) / inlet * 100.0, 2)
             payload = {
                 "inlet_ppm": inlet,
                 "outlet_ppm": outlet,
-                "efficiency": eff,
-                "temperature": temp,
-                "humidity": hum,
-                "device_id": "simulated_chamber_rig",
+                "efficiency": efficiency,
+                "temperature": temperature,
+                "humidity": humidity,
+                "device_id": "two_stage_input_model",
                 "board_type": "simulator",
                 "transport": "simulation"
             }
 
             ok = post_to_backend(payload, api_url)
             status_mark = "✅ POST 200" if ok else "❌ FAIL"
-            print(f"{status_mark} | Inlet: {inlet:6.1f} ppm | Outlet: {outlet:6.1f} ppm | Efficiency: {eff:5.1f}% | Temp: {temp:4.1f}°C | Hum: {hum:4.1f}%")
+            print(f"{status_mark} | Inlet: {inlet:6.1f} ppm | Outlet: {outlet:6.1f} ppm | Efficiency: {efficiency:5.1f}%")
             time.sleep(2.0)
+            elapsed_seconds += 2.0
         except KeyboardInterrupt:
             print("\nStopped mock stream.")
             break
@@ -87,7 +84,7 @@ def run_serial_stream(port: str, baud: int, api_url: str, board: str, transport:
         print("❌ 'pyserial' is not installed. Install it with:")
         print("   pip install pyserial")
         print("\nOr test with simulated mode:")
-        print("   python backend/sensor_bridge.py --mock")
+        print("   python backend/sensor_bridge.py --mock --inlet-ppm 500 --moss-efficiency 40 --algae-efficiency 25 --airflow-m3-h 50 --chamber-volume-m3 1")
         sys.exit(1)
 
     if not port:
@@ -152,7 +149,14 @@ if __name__ == "__main__":
     parser.add_argument("--port", type=str, help="Serial port (e.g. /dev/cu.usbserial-110 or COM3)")
     parser.add_argument("--baud", type=int, default=DEFAULT_BAUD, help="Baud rate (default 115200)")
     parser.add_argument("--api-url", type=str, default=DEFAULT_API_URL, help="FastAPI endpoint URL")
-    parser.add_argument("--mock", action="store_true", help="Run simulated telemetry generator")
+    parser.add_argument("--mock", action="store_true", help="Run deterministic model telemetry from explicit inputs")
+    parser.add_argument("--inlet-ppm", type=float, help="Required inlet concentration for --mock")
+    parser.add_argument("--moss-efficiency", type=float, default=0.0, help="Moss efficiency percent for --mock")
+    parser.add_argument("--algae-efficiency", type=float, default=0.0, help="Algae efficiency percent for --mock")
+    parser.add_argument("--airflow-m3-h", type=float, help="Required airflow for the smooth model curve")
+    parser.add_argument("--chamber-volume-m3", type=float, help="Required chamber volume for the smooth model curve")
+    parser.add_argument("--temperature", type=float, help="Optional chamber temperature for --mock")
+    parser.add_argument("--humidity", type=float, help="Optional chamber humidity for --mock")
     parser.add_argument("--board", choices=["arduino", "esp32"], default="arduino", help="Connected controller type")
     parser.add_argument("--transport", choices=["wired", "bluetooth"], default="wired", help="Serial transport; Bluetooth is ESP32-only")
     args = parser.parse_args()
@@ -161,6 +165,16 @@ if __name__ == "__main__":
         parser.error("Arduino supports wired USB serial only; use --board esp32 for Bluetooth")
 
     if args.mock:
-        run_mock_stream(args.api_url)
+        if args.inlet_ppm is None or args.inlet_ppm <= 0:
+            parser.error("--mock requires --inlet-ppm greater than zero")
+        if not 0 <= args.moss_efficiency <= 100 or not 0 <= args.algae_efficiency <= 100:
+            parser.error("model efficiencies must be between 0 and 100")
+        if args.airflow_m3_h is None or args.airflow_m3_h <= 0:
+            parser.error("--mock requires --airflow-m3-h greater than zero")
+        if args.chamber_volume_m3 is None or args.chamber_volume_m3 <= 0:
+            parser.error("--mock requires --chamber-volume-m3 greater than zero")
+        if args.humidity is not None and not 0 <= args.humidity <= 100:
+            parser.error("humidity must be between 0 and 100")
+        run_model_stream(args.api_url, args.inlet_ppm, args.moss_efficiency, args.algae_efficiency, args.airflow_m3_h, args.chamber_volume_m3, args.temperature, args.humidity)
     else:
         run_serial_stream(args.port, args.baud, args.api_url, args.board, args.transport)
