@@ -1,7 +1,8 @@
 'use client';
 
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {Activity, ArrowDown, BarChart3, CheckCircle2, Crosshair, FlaskConical, Home, LoaderCircle, MapPin, MapPinned, Radio, ShieldCheck, Wind, X} from 'lucide-react';
+import {Activity, ArrowDown, BarChart3, Bell, CheckCircle2, Cpu, Crosshair, Download, Droplets, FileSpreadsheet, FlaskConical, Home, LoaderCircle, MapPin, MapPinned, Play, Radio, RefreshCw, Send, ShieldCheck, Square, Thermometer, Wind, X, Zap} from 'lucide-react';
+
 import {Area, AreaChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis} from 'recharts';
 
 const API = process.env.NEXT_PUBLIC_API_URL || '';
@@ -32,7 +33,7 @@ function combinedStageEfficiency(moss:number, algae:number) {
 }
 
 export default function MossExperience() {
-  const [view, setView] = useState<'home'|'twin'|'analysis'|'locations'>('home');
+  const [view, setView] = useState<'home'|'twin'|'analysis'|'locations'|'sensors'>('home');
   const [site, setSite] = useState(INITIAL_SITE);
   const [air, setAir] = useState<Air|null>(null);
   const [futurePm25, setFuturePm25] = useState<number|null>(null);
@@ -175,6 +176,7 @@ export default function MossExperience() {
         <button className={view === 'twin' ? 'active' : ''} onClick={() => setView('twin')}><FlaskConical size={18}/><span>DIG TWIN</span></button>
         <button className={view === 'analysis' ? 'active' : ''} onClick={() => setView('analysis')}><BarChart3 size={18}/><span>ANALYSIS</span></button>
         <button className={view === 'locations' ? 'active' : ''} onClick={() => setView('locations')}><MapPinned size={18}/><span>LOCATIONS</span></button>
+        <button className={view === 'sensors' ? 'active' : ''} onClick={() => setView('sensors')}><Radio size={18}/><span>SENSORS</span></button>
       </nav>
       <div className="rail-index">01<br/><span>INDIA</span></div>
     </aside>
@@ -220,7 +222,8 @@ export default function MossExperience() {
         </article>
       </div>
       <footer className="model-note"><span>MODEL 0.2 / TWO-STAGE</span><p>The future view models moss followed by algae in series. Combined efficiency is 1 − (1 − moss efficiency) × (1 − algae efficiency), preventing double-counting. Both efficiencies require pollutant-specific measurement and field calibration.</p><span>{air?.time ? `DATA ${air.time.replace('T', ' ')}` : 'AWAITING DATA'}</span></footer>
-    </section> : view === 'analysis' ? <Analysis air={air} loading={loading} error={error} units={units} setUnits={setUnits} efficiency={efficiency} setEfficiency={setEfficiency} algaeEfficiency={algaeEfficiency} setAlgaeEfficiency={setAlgaeEfficiency} hours={hours} setHours={setHours}/> : <Locations totalUnits={units} setTotalUnits={setUnits} mossEfficiency={efficiency} algaeEfficiency={algaeEfficiency} hours={hours}/>}
+    </section> : view === 'analysis' ? <Analysis air={air} loading={loading} error={error} units={units} setUnits={setUnits} efficiency={efficiency} setEfficiency={setEfficiency} algaeEfficiency={algaeEfficiency} setAlgaeEfficiency={setAlgaeEfficiency} hours={hours} setHours={setHours}/> : view === 'locations' ? <Locations totalUnits={units} setTotalUnits={setUnits} mossEfficiency={efficiency} algaeEfficiency={algaeEfficiency} hours={hours}/> : <ChamberSensors onApplyEfficiency={eff => { setEfficiency(Math.round(eff)); setView('twin'); }} />}
+
   </main>;
 }
 
@@ -470,3 +473,681 @@ function AnalysisMetric({label,value,detail}:{label:string;value:string;detail:s
 function ChartEmpty() {return <div className="chart-empty"><Activity size={28}/><strong>Waiting for current air data</strong><span>The graph will appear when the baseline source responds.</span></div>}
 function ModelTooltip({active,payload,label}:any) {if (!active || !payload?.length) return null; return <div className="model-tooltip"><strong>{label} hours</strong><span>Without biofilter: {payload[0]?.value} µg/m³</span><span>Moss only: {payload[1]?.value} µg/m³</span><span>Moss + algae: {payload[2]?.value} µg/m³</span></div>}
 function CaptureTooltip({active,payload,label}:any) {if (!active || !payload?.length) return null; return <div className="model-tooltip"><strong>{label} hours</strong><span>Moss: {Number(payload[0]?.value).toFixed(4)} g</span><span>Algae: {Number(payload[1]?.value).toFixed(4)} g</span><span>Total: {(Number(payload[0]?.value) + Number(payload[1]?.value)).toFixed(4)} g</span></div>}
+
+type SensorTelemetry = {
+  inlet_ppm: number;
+  outlet_ppm: number;
+  efficiency: number;
+  temperature: number | null;
+  humidity: number | null;
+  device_id: string;
+  timestamp: string;
+  health: {
+    moss_status: string;
+    moss_alert: string | null;
+    algae_status: string;
+    algae_alert: string | null;
+  };
+};
+
+type HardwareState = {
+  active: boolean;
+  port: string | null;
+  device_name: string | null;
+  baud: number;
+  last_seen: string | null;
+  scanned_ports: Array<{device: string; description: string}>;
+};
+
+function ChamberSensors({onApplyEfficiency}:{onApplyEfficiency:(eff:number)=>void}) {
+  const [live, setLive] = useState<SensorTelemetry|null>(null);
+  const [hardware, setHardware] = useState<HardwareState|null>(null);
+  const [history, setHistory] = useState<SensorTelemetry[]>([]);
+  const [connected, setConnected] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [simulating, setSimulating] = useState(false);
+  const [autoPoll, setAutoPoll] = useState(true);
+
+  // --- Mass Capture Odometer State ---
+  const [airflow, setAirflow] = useState(50); // m³/h blower airflow
+  const [cumulativeMassGrams, setCumulativeMassGrams] = useState(0.0);
+
+  // --- Trial Run & CSV Lab Report State ---
+  const [trialActive, setTrialActive] = useState(false);
+  const [trialRemaining, setTrialRemaining] = useState(0);
+  const [trialDuration, setTrialDuration] = useState(300);
+  const [trialSamples, setTrialSamples] = useState<SensorTelemetry[]>([]);
+  const [showTrialSummary, setShowTrialSummary] = useState(false);
+
+  // --- Telegram Alerts State ---
+  const [showTelegramModal, setShowTelegramModal] = useState(false);
+  const [telegramToken, setTelegramToken] = useState('');
+  const [telegramChatId, setTelegramChatId] = useState('');
+  const [telegramEnabled, setTelegramEnabled] = useState(true);
+  const [telegramStatus, setTelegramStatus] = useState('');
+  const [testingTelegram, setTestingTelegram] = useState(false);
+
+  const fetchLive = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const res = await fetch(`${API}/api/sensors/live`);
+      if (res.ok) {
+        const data = await res.json();
+        setConnected(Boolean(data.connected));
+        if (data.hardware) setHardware(data.hardware);
+        if (data.latest) setLive(data.latest);
+        if (data.history) setHistory(data.history);
+      }
+    } catch {
+      // Backend service not reachable
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchLive();
+    if (!autoPoll) return;
+    const interval = setInterval(fetchLive, 2000);
+    return () => clearInterval(interval);
+  }, [fetchLive, autoPoll]);
+
+  // Accumulate mass capture & trial samples on live update
+  useEffect(() => {
+    if (!live || live.inlet_ppm <= 0 || live.efficiency <= 0) return;
+    const inletUgM3 = live.inlet_ppm * 1000;
+    // Step grams removed in 2-second interval:
+    const stepGrams = (airflow * (live.efficiency / 100) * inletUgM3 * (2 / 3600)) / 1e6;
+    setCumulativeMassGrams(curr => curr + stepGrams);
+
+    if (trialActive) {
+      setTrialSamples(curr => [...curr, live]);
+    }
+  }, [live?.timestamp, airflow, trialActive]);
+
+  // Trial countdown timer
+  useEffect(() => {
+    if (!trialActive) return;
+    const timer = setInterval(() => {
+      setTrialRemaining(curr => {
+        if (curr <= 1) {
+          setTrialActive(false);
+          setShowTrialSummary(true);
+          return 0;
+        }
+        return curr - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [trialActive]);
+
+  const startTrialRun = (durationSec = 300) => {
+    setTrialDuration(durationSec);
+    setTrialRemaining(durationSec);
+    setTrialSamples([]);
+    setTrialActive(true);
+  };
+
+  const stopTrialRun = () => {
+    setTrialActive(false);
+    setShowTrialSummary(true);
+  };
+
+  const exportTrialCSV = () => {
+    if (!trialSamples.length) return;
+    const avgInlet = (trialSamples.reduce((s, x) => s + x.inlet_ppm, 0) / trialSamples.length).toFixed(2);
+    const avgOutlet = (trialSamples.reduce((s, x) => s + x.outlet_ppm, 0) / trialSamples.length).toFixed(2);
+    const avgEff = (trialSamples.reduce((s, x) => s + x.efficiency, 0) / trialSamples.length).toFixed(2);
+    const validTemps = trialSamples.filter(x => x.temperature !== null);
+    const avgTemp = validTemps.length ? (validTemps.reduce((s, x) => s + (x.temperature || 0), 0) / validTemps.length).toFixed(1) : 'N/A';
+    const validHums = trialSamples.filter(x => x.humidity !== null);
+    const avgHum = validHums.length ? (validHums.reduce((s, x) => s + (x.humidity || 0), 0) / validHums.length).toFixed(1) : 'N/A';
+    const totalCaptured = trialSamples.reduce((sum, s) => sum + (airflow * (s.efficiency / 100) * (s.inlet_ppm * 1000) * (2 / 3600)) / 1e6, 0).toFixed(5);
+
+    let csv = `MOSS-ALGAE INDIA — RESEARCH TRIAL EXPERIMENT REPORT\n`;
+    csv += `Export Timestamp,${new Date().toISOString()}\n`;
+    csv += `Chamber Configuration,Two-Stage Biofilter (Living Moss Matrix + Microalgae Polishing)\n`;
+    csv += `Blower Airflow Rating,${airflow} m3/h\n`;
+    csv += `Total Samples Recorded,${trialSamples.length}\n`;
+    csv += `Mean Intake Gas PPM,${avgInlet} ppm\n`;
+    csv += `Mean Exhaust Gas PPM,${avgOutlet} ppm\n`;
+    csv += `Average Biofilter Removal Efficiency,${avgEff} %\n`;
+    csv += `Total Pollutant Mass Removed,${totalCaptured} grams\n`;
+    csv += `Mean Chamber Temperature,${avgTemp} °C\n`;
+    csv += `Mean Chamber Humidity,${avgHum} % RH\n\n`;
+
+    csv += `Sample_Index,Timestamp,Inlet_Gas_PPM,Outlet_Gas_PPM,Reduction_Delta_PPM,Single_Pass_Efficiency_Pct,Temperature_C,Humidity_Pct,Instantaneous_Capture_Rate_g_day\n`;
+    trialSamples.forEach((item, idx) => {
+      const red = (item.inlet_ppm - item.outlet_ppm).toFixed(2);
+      const rate = ((airflow * (item.efficiency / 100) * (item.inlet_ppm * 1000) * 24) / 1e6).toFixed(3);
+      csv += `${idx + 1},"${item.timestamp}",${item.inlet_ppm.toFixed(2)},${item.outlet_ppm.toFixed(2)},${red},${item.efficiency.toFixed(2)},${item.temperature ?? 'N/A'},${item.humidity ?? 'N/A'},${rate}\n`;
+    });
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `moss_algae_trial_report_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const openTelegramModal = async () => {
+    setShowTelegramModal(true);
+    setTelegramStatus('');
+    try {
+      const res = await fetch(`${API}/api/alerts/telegram/config`);
+      if (res.ok) {
+        const data = await res.json();
+        setTelegramEnabled(Boolean(data.enabled));
+        setTelegramChatId(data.chat_id || '');
+        if (data.token_masked) setTelegramToken(data.token_masked);
+      }
+    } catch {
+      // Backend not running
+    }
+  };
+
+  const saveTelegramConfig = async () => {
+    try {
+      const res = await fetch(`${API}/api/alerts/telegram/config`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          bot_token: telegramToken,
+          chat_id: telegramChatId,
+          enabled: telegramEnabled
+        })
+      });
+      if (res.ok) setTelegramStatus('✅ Telegram configuration saved!');
+      else setTelegramStatus('Error saving Telegram configuration');
+    } catch {
+      setTelegramStatus('Backend not reachable');
+    }
+  };
+
+  const testTelegramAlert = async () => {
+    setTestingTelegram(true);
+    setTelegramStatus('');
+    try {
+      const res = await fetch(`${API}/api/alerts/telegram/test`, {method: 'POST'});
+      const data = await res.json();
+      if (res.ok) setTelegramStatus('✅ Test alert sent to your Telegram!');
+      else setTelegramStatus(data.detail || 'Failed to send alert');
+    } catch {
+      setTelegramStatus('Backend not reachable');
+    } finally {
+      setTestingTelegram(false);
+    }
+  };
+
+  const handleSimulateTick = async () => {
+    setSimulating(true);
+    try {
+      const res = await fetch(`${API}/api/sensors/simulate`, {method: 'POST'});
+      if (res.ok) {
+        await fetchLive();
+      } else {
+        throw new Error('Simulation endpoint failed');
+      }
+    } catch {
+      const baseInlet = 420 + Math.random() * 90;
+      const eff = 34 + Math.random() * 8.5;
+      const outlet = baseInlet * (1 - eff / 100);
+      const mock: SensorTelemetry = {
+        inlet_ppm: Math.round(baseInlet * 10) / 10,
+        outlet_ppm: Math.round(outlet * 10) / 10,
+        efficiency: Math.round(eff * 10) / 10,
+        temperature: 24.1,
+        humidity: 71.4,
+        device_id: 'browser_sim_kit',
+        timestamp: new Date().toISOString(),
+        health: {
+          moss_status: 'Optimal Hydration',
+          moss_alert: null,
+          algae_status: 'Optimal Growth',
+          algae_alert: null
+        }
+      };
+      setConnected(true);
+      setLive(mock);
+      setHistory(curr => [...curr.slice(-30), mock]);
+    } finally {
+      setSimulating(false);
+    }
+  };
+
+  const chartData = useMemo(() => {
+    return history.map((item, idx) => ({
+      index: idx + 1,
+      inlet: item.inlet_ppm,
+      outlet: item.outlet_ppm,
+      efficiency: item.efficiency,
+      time: item.timestamp ? new Date(item.timestamp).toLocaleTimeString([], {minute:'2-digit', second:'2-digit'}) : `${idx + 1}`
+    }));
+  }, [history]);
+
+  const effPercent = live?.efficiency != null ? Math.max(0, Math.min(100, live.efficiency)) : 0;
+  const deltaPpm = live ? Math.max(0, live.inlet_ppm - live.outlet_ppm) : null;
+  const dailyRateGrams = live?.inlet_ppm && live?.efficiency ? ((airflow * (live.efficiency / 100) * (live.inlet_ppm * 1000) * 24) / 1e6) : 0;
+
+  return <section className="sensors-view" aria-label="Live Chamber Sensors Dashboard">
+    <header className="sensors-header">
+      <div>
+        <p className="kicker">CHAMBER IOT / REAL-TIME HARDWARE TELEMETRY</p>
+        <h1>Physical Sensor Suite</h1>
+        <p>Live stream from dual Robocraze MQ-135 hazardous gas sensors and DHT22 digital microclimate probe in the active moss-algae chamber.</p>
+      </div>
+      <div className="sensors-actions">
+        <button className="sensor-btn secondary" onClick={fetchLive} disabled={refreshing}>
+          <RefreshCw className={refreshing ? 'spin' : ''} size={15}/> {refreshing ? 'Reading…' : 'Refresh'}
+        </button>
+        <button className="sensor-btn accent" onClick={handleSimulateTick} disabled={simulating}>
+          <Play size={15}/> {simulating ? 'Simulating…' : 'Simulate Sensor Tick'}
+        </button>
+        <button className="sensor-btn" onClick={() => startTrialRun(600)} disabled={trialActive} title="Start full 10-minute research trial run">
+          <FileSpreadsheet size={15}/> {trialActive ? 'Trial Active…' : 'Start 10-Min Trial Run'}
+        </button>
+        <button className="sensor-btn secondary" onClick={() => startTrialRun(300)} disabled={trialActive} title="Start rapid 5-minute validation run">
+          5-Min
+        </button>
+        <button className="sensor-btn secondary" onClick={openTelegramModal}>
+          <Bell size={15}/> Telegram Alerts
+        </button>
+        <button className="sensor-btn secondary" onClick={() => setAutoPoll(!autoPoll)}>
+          <Zap size={15}/> Auto-Poll: {autoPoll ? 'ON' : 'PAUSED'}
+        </button>
+      </div>
+    </header>
+
+    <div className="connection-banner">
+      <div className={`connection-badge ${hardware?.active ? 'connected' : connected ? 'connected' : 'waiting'}`}>
+        <span className="live-dot"/>
+        <strong>
+          {hardware?.active
+            ? `Physical Arduino Connected: ${hardware.port}`
+            : connected
+            ? `Hardware Stream Active (${live?.device_id || 'Telemetry'})`
+            : 'Auto-Scanner Searching for Arduino USB...'}
+        </strong>
+        <span>·</span>
+        <small>
+          {hardware?.active
+            ? `${hardware.device_name || 'USB Serial Board'} @ 115200 baud`
+            : hardware?.scanned_ports?.length
+            ? `${hardware.scanned_ports.length} USB ports scanned · Plug Arduino into Mac`
+            : 'Listening on USB Serial / ESP32 WiFi'}
+        </small>
+      </div>
+      <div className="connection-detail">
+        {hardware?.active
+          ? 'Physical Sensors Live (Dual MQ-135 + DHT22)'
+          : live?.timestamp
+          ? `Latest: ${new Date(live.timestamp).toLocaleTimeString()}`
+          : 'Plug Arduino into USB to stream real sensors'}
+      </div>
+    </div>
+
+    {/* Trial Run Recording Banner */}
+    {trialActive && (
+      <div className="trial-active-bar">
+        <div className="trial-active-left">
+          <span className="record-dot"/>
+          <strong>RESEARCH TRIAL ACTIVE</strong>
+          <span>·</span>
+          <span>Time Remaining: {Math.floor(trialRemaining / 60)}:{String(trialRemaining % 60).padStart(2, '0')}</span>
+          <span>·</span>
+          <span>{trialSamples.length} samples logged</span>
+        </div>
+        <button className="sensor-btn secondary" style={{padding: '6px 14px', fontSize: '0.88rem'}} onClick={stopTrialRun}>
+          <Square size={13} fill="currentColor"/> Stop & Review Report
+        </button>
+      </div>
+    )}
+
+    {/* Live Mass Capture Odometer */}
+    <div className="mass-odometer-banner">
+      <div className="odometer-main">
+        <span className="odometer-tag"><Droplets size={15}/> LIVE POLLUTANT MASS ODOMETER</span>
+        <div className="odometer-counter">
+          {cumulativeMassGrams.toFixed(4)}<small>grams removed</small>
+        </div>
+        <div style={{display: 'flex', alignItems: 'center', gap: '10px', marginTop: '6px'}}>
+          <small style={{color: '#95a692'}}>Total mass filtered in current session</small>
+          <button
+            onClick={() => setCumulativeMassGrams(0.0)}
+            style={{background: 'transparent', border: '0', color: '#88a385', textDecoration: 'underline', cursor: 'pointer', fontSize: '0.82rem'}}
+          >
+            Reset
+          </button>
+        </div>
+      </div>
+
+      <div className="odometer-rate">
+        <span>Instantaneous Removal Rate</span>
+        <strong>{dailyRateGrams.toFixed(2)} g/day</strong>
+        <small style={{color: '#8da892'}}>
+          CADR = {(airflow * (effPercent / 100)).toFixed(1)} m³/h at current efficiency
+        </small>
+      </div>
+
+      <div className="odometer-airflow">
+        <label>
+          <span>Fan Airflow Rating (Q)</span>
+          <strong>{airflow} m³/h</strong>
+        </label>
+        <input
+          type="range"
+          min="10"
+          max="200"
+          step="5"
+          value={airflow}
+          onChange={e => setAirflow(Number(e.target.value))}
+        />
+        <small style={{color: '#8da892'}}>Adjust to match your biofilter blower fan</small>
+      </div>
+    </div>
+
+    <div className="sensors-kpi-grid">
+      <article className="sensor-kpi-card inlet-card">
+        <div className="card-tag"><span>01 / INTAKE AIR</span><small>MQ-135 #1 · Pin A0</small></div>
+        <h3>Pre-Filter Gas PPM</h3>
+        <div className="reading-val">{live ? live.inlet_ppm.toFixed(1) : '—'}<small>ppm</small></div>
+        <div className="sensor-status-badge info">Intake / Dirty Air Baseline</div>
+      </article>
+
+      <article className="sensor-kpi-card outlet-card">
+        <div className="card-tag"><span>02 / PURIFIED AIR</span><small>MQ-135 #2 · Pin A1</small></div>
+        <h3>Post-Filter Gas PPM</h3>
+        <div className="reading-val">{live ? live.outlet_ppm.toFixed(1) : '—'}<small>ppm</small></div>
+        <div className="sensor-status-badge optimal">Exhaust / Treated Air Stream</div>
+      </article>
+
+      <article className="sensor-kpi-card highlight">
+        <div className="card-tag"><span>03 / EFFICIENCY</span><small>Single-Pass Δ</small></div>
+        <h3>Measured Removal</h3>
+        <div className="reading-val" style={{color: '#16858c'}}>
+          {live?.efficiency != null ? `${live.efficiency.toFixed(1)}%` : '—'}
+        </div>
+        <span style={{fontSize: '0.9rem', color: '#687766'}}>
+          {deltaPpm != null ? `Δ −${deltaPpm.toFixed(1)} ppm reduction` : 'Awaiting sensor delta'}
+        </span>
+        {live?.efficiency != null && (
+          <button
+            className="sensor-btn accent"
+            style={{marginTop: 'auto', padding: '8px 12px', fontSize: '0.88rem'}}
+            onClick={() => onApplyEfficiency(live.efficiency)}
+          >
+            Apply {live.efficiency.toFixed(0)}% to Digital Twin →
+          </button>
+        )}
+      </article>
+
+      <article className="sensor-kpi-card climate-card">
+        <div className="card-tag"><span>04 / CHAMBER MICROCLIMATE</span><small>Robocraze DHT22 · Pin D2</small></div>
+        <h3>Temp & Humidity</h3>
+        <div className="reading-val">
+          {live?.temperature != null ? `${live.temperature.toFixed(1)}°C` : '—'}
+          <small style={{marginLeft: '12px'}}>{live?.humidity != null ? `${live.humidity.toFixed(0)}% RH` : '—'}</small>
+        </div>
+        <div className="sensor-status-badge optimal">
+          {live?.health ? `${live.health.moss_status} · ${live.health.algae_status}` : 'Microclimate Monitor'}
+        </div>
+      </article>
+    </div>
+
+    {(live?.health?.moss_alert || live?.health?.algae_alert) && (
+      <div className="chamber-alert-box">
+        {live?.health?.moss_alert && <div>⚠️ <strong>Moss Alert:</strong> {live.health.moss_alert}</div>}
+        {live?.health?.algae_alert && <div>⚠️ <strong>Algae Alert:</strong> {live.health.algae_alert}</div>}
+      </div>
+    )}
+
+    <div className="sensors-dashboard-split">
+      <article className="sensor-telemetry-panel">
+        <div className="panel-title">
+          <div>
+            <span>TIME-SERIES TELEMETRY</span>
+            <h2>Inlet vs Outlet Gas Concentration</h2>
+          </div>
+          <small style={{color: '#717e6e'}}>{history.length} samples logged</small>
+        </div>
+
+        <div className="telemetry-chart-box">
+          {chartData.length ? (
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={chartData} margin={{top: 15, right: 20, left: 0, bottom: 5}}>
+                <CartesianGrid stroke="#dfe5d7" strokeDasharray="4 5" vertical={false}/>
+                <XAxis dataKey="time" stroke="#73806f"/>
+                <YAxis unit=" ppm" stroke="#73806f"/>
+                <Tooltip
+                  content={({active, payload, label}:any) => {
+                    if (!active || !payload?.length) return null;
+                    return (
+                      <div className="model-tooltip">
+                        <strong>Time: {label}</strong>
+                        <span style={{color: '#c29b84'}}>Inlet (Pre-filter): {payload[0]?.value} ppm</span>
+                        <span style={{color: '#55b5ba'}}>Outlet (Treated): {payload[1]?.value} ppm</span>
+                        {payload[2] && <span>Efficiency: {payload[2]?.value}%</span>}
+                      </div>
+                    );
+                  }}
+                />
+                <Legend/>
+                <Line type="monotone" dataKey="inlet" name="Inlet Air (MQ-135 #1)" stroke="#99745c" strokeWidth={3} dot={false}/>
+                <Line type="monotone" dataKey="outlet" name="Outlet Air (MQ-135 #2)" stroke="#16858c" strokeWidth={3} dot={false}/>
+              </LineChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="chart-empty">
+              <Activity size={28}/>
+              <strong>Awaiting Telemetry Stream</strong>
+              <span>Start the Python bridge or click &ldquo;Simulate Sensor Tick&rdquo; to plot real-time gas curves.</span>
+            </div>
+          )}
+        </div>
+
+        <div className="efficiency-visualizer">
+          <div className="efficiency-bar-wrapper">
+            <div className="efficiency-bar-label">
+              <span>Instantaneous Single-Pass Filter Efficiency</span>
+              <strong>{live?.efficiency != null ? `${live.efficiency.toFixed(1)}%` : '0%'}</strong>
+            </div>
+            <div className="efficiency-bar">
+              <div className="efficiency-bar-fill" style={{width: `${effPercent}%`}}/>
+            </div>
+          </div>
+          <small style={{color: '#657362', fontSize: '0.88rem'}}>
+            Computed via ((Inlet − Outlet) / Inlet) × 100%. Real efficiency measured across the biological stage.
+          </small>
+        </div>
+      </article>
+
+      <article className="sensor-guide-panel">
+        <div className="panel-title">
+          <div>
+            <span>WIRING & PIN REFERENCE</span>
+            <h2>Hardware Connection Map</h2>
+          </div>
+        </div>
+
+        <table className="hardware-pins-table" aria-label="Arduino pin mapping">
+          <thead>
+            <tr>
+              <th>Sensor Module</th>
+              <th>Pin</th>
+              <th>Arduino Target</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Robocraze MQ-135 #1</strong> (Inlet)</td>
+              <td>AOUT / VCC / GND</td>
+              <td><strong>Pin A0</strong> / 5V / GND</td>
+            </tr>
+            <tr>
+              <td><strong>Robocraze MQ-135 #2</strong> (Outlet)</td>
+              <td>AOUT / VCC / GND</td>
+              <td><strong>Pin A1</strong> / 5V / GND</td>
+            </tr>
+            <tr>
+              <td><strong>Robocraze DHT22</strong> (Temp & Hum)</td>
+              <td>DATA / VCC / GND</td>
+              <td><strong>Digital Pin 2</strong> / 5V / GND</td>
+            </tr>
+            <tr>
+              <td><strong>USB Serial Interface</strong></td>
+              <td>TX / RX</td>
+              <td><strong>115200 Baud</strong></td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div className="chamber-alert-box" style={{marginTop: '20px', background: '#f5faf6', borderColor: '#538257', color: '#274b29'}}>
+          <strong>🔌 Physical Sensors Plug-and-Play Guide:</strong>
+          <ol style={{paddingLeft: '18px', margin: '8px 0 0', lineHeight: '1.6'}}>
+            <li>Upload <a href="file:///Users/saitriveni/moss%20algae/MOSS_ALGAE/arduino/moss_algae_sensors.ino" style={{color: '#16858c', textDecoration: 'underline'}}>arduino/moss_algae_sensors.ino</a> to your Arduino using Arduino IDE.</li>
+            <li>Connect MQ-135 #1 to <strong>Pin A0</strong>, MQ-135 #2 to <strong>Pin A1</strong>, and DHT22 to <strong>Digital Pin 2</strong>.</li>
+            <li><strong>Close the Arduino IDE Serial Monitor</strong> (macOS only allows one program to access the USB port).</li>
+            <li>Plug the Arduino USB cable into your Mac. The dashboard auto-detects the board and streams real data!</li>
+          </ol>
+        </div>
+      </article>
+    </div>
+
+    {/* Trial Summary Modal */}
+    {showTrialSummary && (
+      <div className="modal-backdrop">
+        <div className="modal-window">
+          <div className="modal-header">
+            <h2>🧪 Research Trial Report</h2>
+            <button className="modal-close-btn" onClick={() => setShowTrialSummary(false)}>
+              <X size={20}/>
+            </button>
+          </div>
+          <div className="modal-body">
+            <p style={{margin: '0 0 10px', color: '#566453'}}>
+              Trial run complete! Below is the aggregated biological data and biofilter performance summary.
+            </p>
+            <div className="modal-stats-grid">
+              <div className="modal-stat-item">
+                <span>Total Samples Recorded</span>
+                <strong>{trialSamples.length} datapoints</strong>
+              </div>
+              <div className="modal-stat-item">
+                <span>Mean Biofilter Efficiency</span>
+                <strong style={{color: '#16858c'}}>
+                  {trialSamples.length ? (trialSamples.reduce((s, x) => s + x.efficiency, 0) / trialSamples.length).toFixed(1) : 0}%
+                </strong>
+              </div>
+              <div className="modal-stat-item">
+                <span>Average Intake Gas</span>
+                <strong>
+                  {trialSamples.length ? (trialSamples.reduce((s, x) => s + x.inlet_ppm, 0) / trialSamples.length).toFixed(1) : 0} ppm
+                </strong>
+              </div>
+              <div className="modal-stat-item">
+                <span>Average Exhaust Gas</span>
+                <strong>
+                  {trialSamples.length ? (trialSamples.reduce((s, x) => s + x.outlet_ppm, 0) / trialSamples.length).toFixed(1) : 0} ppm
+                </strong>
+              </div>
+              <div className="modal-stat-item">
+                <span>Total Mass Captured</span>
+                <strong style={{color: '#437c35'}}>
+                  {trialSamples.reduce((sum, s) => sum + (airflow * (s.efficiency / 100) * (s.inlet_ppm * 1000) * (2 / 3600)) / 1e6, 0).toFixed(4)} g
+                </strong>
+              </div>
+              <div className="modal-stat-item">
+                <span>Mean Chamber Climate</span>
+                <strong>
+                  {trialSamples.filter(x => x.temperature).length ? (trialSamples.reduce((s, x) => s + (x.temperature || 0), 0) / trialSamples.filter(x => x.temperature).length).toFixed(1) : '—'}°C · {trialSamples.filter(x => x.humidity).length ? (trialSamples.reduce((s, x) => s + (x.humidity || 0), 0) / trialSamples.filter(x => x.humidity).length).toFixed(0) : '—'}% RH
+                </strong>
+              </div>
+            </div>
+
+            <div style={{display: 'flex', gap: '10px', marginTop: '12px'}}>
+              <button className="sensor-btn accent" style={{flex: 1, justifyContent: 'center'}} onClick={exportTrialCSV}>
+                <Download size={16}/> Download CSV Lab Report (.csv)
+              </button>
+              <button className="sensor-btn secondary" onClick={() => setShowTrialSummary(false)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* Telegram Alerts Configuration Modal */}
+    {showTelegramModal && (
+      <div className="modal-backdrop">
+        <div className="modal-window">
+          <div className="modal-header">
+            <h2>📱 Telegram Alerts Configuration</h2>
+            <button className="modal-close-btn" onClick={() => setShowTelegramModal(false)}>
+              <X size={20}/>
+            </button>
+          </div>
+          <div className="modal-body">
+            <p style={{margin: '0', color: '#566453', fontSize: '0.95rem', lineHeight: 1.5}}>
+              Receive instant alerts on your phone whenever the chamber conditions reach biological limits:
+              <br/>• <strong>Temperature &gt; 32°C:</strong> Algal thermal stress warning
+              <br/>• <strong>Humidity &lt; 45% RH:</strong> Moss desiccation / misting alert
+            </p>
+
+            <div className="telegram-input-group">
+              <label>Telegram Bot Token</label>
+              <input
+                type="text"
+                placeholder="e.g. 123456789:ABCdefGhIJKlmNoPQRstuvwxyZ"
+                value={telegramToken}
+                onChange={e => setTelegramToken(e.target.value)}
+              />
+              <small>Create a free bot with @BotFather on Telegram to get your token.</small>
+            </div>
+
+            <div className="telegram-input-group">
+              <label>Your Telegram Chat ID</label>
+              <input
+                type="text"
+                placeholder="e.g. 987654321"
+                value={telegramChatId}
+                onChange={e => setTelegramChatId(e.target.value)}
+              />
+              <small>Message @userinfobot on Telegram to get your personal Chat ID.</small>
+            </div>
+
+            <label style={{display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.95rem'}}>
+              <input
+                type="checkbox"
+                checked={telegramEnabled}
+                onChange={e => setTelegramEnabled(e.target.checked)}
+              />
+              <span>Enable automatic Telegram notifications</span>
+            </label>
+
+            {telegramStatus && (
+              <div style={{padding: '10px 14px', background: '#edf4e8', border: '1px solid #7ea572', color: '#274b29', fontSize: '0.92rem'}}>
+                {telegramStatus}
+              </div>
+            )}
+
+            <div style={{display: 'flex', gap: '10px', marginTop: '8px'}}>
+              <button className="sensor-btn accent" onClick={saveTelegramConfig}>
+                Save Configuration
+              </button>
+              <button className="sensor-btn secondary" onClick={testTelegramAlert} disabled={testingTelegram}>
+                <Send size={14}/> {testingTelegram ? 'Sending…' : 'Send Test Alert'}
+              </button>
+              <button className="sensor-btn secondary" onClick={() => setShowTelegramModal(false)} style={{marginLeft: 'auto'}}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
+  </section>;
+}
+

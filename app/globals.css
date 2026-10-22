@@ -22,3 +22,116 @@
 @media(max-width:600px){.monogram img{width:68px;height:68px}}
 .monogram{height:112px;background:#10241b;padding:4px}.monogram img{width:102px;height:102px;filter:drop-shadow(0 4px 10px rgba(0,0,0,.28))}
 @media(max-width:600px){.monogram{height:88px}.monogram img{width:80px;height:80px}}
+
+/* --- LIVE CHAMBER SENSORS (IoT) STYLING --- */
+.sensors-view{margin-left:112px;min-height:100vh;padding:30px;background:linear-gradient(142deg,#f5f2e8,#e7ece0)}
+.sensors-header{display:flex;align-items:flex-end;justify-content:space-between;gap:25px;padding:8px 4px 25px;border-bottom:1px solid var(--line)}
+.sensors-header>div:first-child{max-width:820px}
+.sensors-header .kicker{color:#6e7d66;margin-bottom:10px}
+.sensors-header h1{font-size:clamp(34px,3.8vw,62px);font-weight:500;line-height:1;margin:0}
+.sensors-header p:last-child{font-size:1.05rem;line-height:1.6;color:#6d776b;margin:15px 0 0}
+.sensors-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.sensor-btn{display:flex;align-items:center;gap:8px;padding:12px 16px;background:#203225;color:#eef3e1;border:0;cursor:pointer;font-size:1rem;transition:background .2s ease,transform .2s ease}
+.sensor-btn:hover{background:#2a4431;transform:translateY(-1px)}
+.sensor-btn.secondary{background:#e7ecdc;color:#283a2c;border:1px solid var(--line)}
+.sensor-btn.secondary:hover{background:#dde4ce}
+.sensor-btn.accent{background:#167c82;color:white}
+.sensor-btn.accent:hover{background:#1a9097}
+.sensor-btn:disabled{opacity:.6;cursor:not-allowed}
+
+.connection-banner{display:flex;justify-content:space-between;align-items:center;background:#213125;color:#ebf0e1;padding:14px 20px;margin-top:18px}
+.connection-badge{display:flex;align-items:center;gap:9px;font-size:1rem}
+.connection-badge.connected .live-dot{background:#4ade80;box-shadow:0 0 0 5px rgba(74,222,128,.25)}
+.connection-badge.waiting .live-dot{background:#facc15;box-shadow:0 0 0 5px rgba(250,204,21,.25)}
+.connection-detail{color:#a9b5a3;font-size:1rem}
+
+.sensors-kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:16px}
+.sensor-kpi-card{background:#faf9f2;border:1px solid var(--line);padding:20px;display:flex;flex-direction:column;gap:10px;position:relative}
+.sensor-kpi-card.highlight{border-top:4px solid #16858c;background:#f5faf8}
+.sensor-kpi-card.inlet-card{border-top:4px solid #99745c}
+.sensor-kpi-card.outlet-card{border-top:4px solid #587d46}
+.sensor-kpi-card.climate-card{border-top:4px solid #3c829e}
+.sensor-kpi-card .card-tag{font-size:.9rem;letter-spacing:1px;color:#778372;display:flex;justify-content:space-between;align-items:center}
+.sensor-kpi-card h3{font-size:1.15rem;font-weight:500;margin:0;color:#2c3b2f}
+.sensor-kpi-card .reading-val{font-size:clamp(26px,2.2vw,38px);font-weight:500;color:#1d2c20;line-height:1}
+.sensor-kpi-card .reading-val small{font-size:1.1rem;font-weight:400;color:#7a8677;margin-left:4px}
+.sensor-status-badge{display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border-radius:2px;font-size:.92rem;font-weight:500;margin-top:auto}
+.sensor-status-badge.optimal{background:#dcfce7;color:#166534}
+.sensor-status-badge.warning{background:#fef3c7;color:#92400e}
+.sensor-status-badge.critical{background:#fee2e2;color:#991b1b}
+.sensor-status-badge.info{background:#e0f2fe;color:#075985}
+
+.sensors-dashboard-split{display:grid;grid-template-columns:1.4fr 1fr;gap:14px;margin-top:16px}
+.sensor-telemetry-panel,.sensor-guide-panel{background:#faf9f2;border:1px solid var(--line);padding:22px}
+.sensor-telemetry-panel .panel-title,.sensor-guide-panel .panel-title{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:15px;border-bottom:1px solid var(--line)}
+.sensor-telemetry-panel .panel-title h2,.sensor-guide-panel .panel-title h2{font-size:1.55rem;font-weight:500;margin:4px 0 0}
+.telemetry-chart-box{height:340px;margin-top:18px;padding-right:10px}
+
+.efficiency-visualizer{margin-top:18px;padding:18px;background:#eef3e7;border:1px solid var(--line);display:flex;flex-direction:column;gap:12px}
+.efficiency-bar-wrapper{display:flex;flex-direction:column;gap:6px}
+.efficiency-bar-label{display:flex;justify-content:space-between;font-size:1rem;color:#495747}
+.efficiency-bar{height:16px;background:#dce4d4;border-radius:2px;overflow:hidden;position:relative}
+.efficiency-bar-fill{height:100%;background:linear-gradient(90deg,#5e864b,#16858c);transition:width .4s ease}
+
+.hardware-pins-table{width:100%;border-collapse:collapse;margin-top:14px;font-size:.95rem}
+.hardware-pins-table th,.hardware-pins-table td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--line)}
+.hardware-pins-table th{background:#ecefe2;color:#4c5b4b;font-weight:500}
+.hardware-pins-table td strong{color:#1a2b1e}
+
+.chamber-alert-box{margin-top:14px;padding:12px 16px;border-left:4px solid #ca8a04;background:#fef9c3;color:#854d0e;font-size:.95rem;line-height:1.5}
+
+@media(max-width:1250px){
+  .sensors-kpi-grid{grid-template-columns:repeat(2,1fr)}
+  .sensors-dashboard-split{grid-template-columns:1fr}
+}
+@media(max-width:900px){
+  .sensors-view{padding:20px 15px}
+  .sensors-header{flex-direction:column;align-items:flex-start}
+}
+@media(max-width:600px){
+  .sensors-view{margin-left:88px;padding:18px 10px}
+  .sensors-kpi-grid{grid-template-columns:1fr}
+}
+
+/* --- MASS ODOMETER, TRIAL RUN & TELEGRAM STYLING --- */
+.mass-odometer-banner{display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:18px;align-items:center;background:#18281d;color:#edf3e2;border:1px solid #334737;padding:22px 24px;margin-top:16px;box-shadow:0 8px 24px rgba(18,34,22,.18)}
+.odometer-main{display:flex;flex-direction:column;gap:5px}
+.odometer-tag{font-size:.88rem;letter-spacing:1px;color:#9eb09a;display:flex;align-items:center;gap:6px}
+.odometer-counter{font-size:clamp(32px,3vw,50px);font-weight:600;color:#c0e088;letter-spacing:-1px;line-height:1}
+.odometer-counter small{font-size:1.2rem;font-weight:400;color:#a3ba90;margin-left:6px}
+.odometer-rate{display:flex;flex-direction:column;gap:4px;border-left:1px solid #ffffff1a;padding-left:20px}
+.odometer-rate span{font-size:.9rem;color:#9eb09a}
+.odometer-rate strong{font-size:1.85rem;color:#4ed0d8;font-weight:500}
+.odometer-airflow{display:flex;flex-direction:column;gap:8px;border-left:1px solid #ffffff1a;padding-left:20px}
+.odometer-airflow label{font-size:.88rem;color:#9eb09a;display:flex;justify-content:space-between}
+.odometer-airflow strong{color:#eef4df}
+.odometer-airflow input[type="range"]{width:100%;accent-color:#a8c76b}
+
+.trial-active-bar{display:flex;align-items:center;justify-content:space-between;background:#7f1d1d;color:#fef2f2;padding:12px 20px;margin-top:14px;border-radius:2px;animation:pulseRed 2s infinite}
+@keyframes pulseRed{0%,100%{background:#7f1d1d}50%{background:#991b1b}}
+.trial-active-left{display:flex;align-items:center;gap:12px;font-size:1.05rem}
+.record-dot{width:12px;height:12px;background:#ef4444;border-radius:50%;box-shadow:0 0 0 4px rgba(239,68,68,.35);animation:blink 1s infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+
+.modal-backdrop{position:fixed;inset:0;background:rgba(14,24,17,.75);backdrop-filter:blur(6px);z-index:999;display:flex;align-items:center;justify-content:center;padding:20px}
+.modal-window{background:#faf9f3;border:1px solid var(--line);max-width:620px;width:100%;max-height:90vh;overflow-y:auto;padding:26px;box-shadow:0 24px 60px rgba(0,0,0,.35);position:relative}
+.modal-header{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);padding-bottom:14px}
+.modal-header h2{font-size:1.6rem;font-weight:500;margin:0;color:#243527}
+.modal-close-btn{background:transparent;border:0;cursor:pointer;color:#5a6857;display:grid;place-items:center;padding:4px}
+.modal-body{margin-top:18px;display:flex;flex-direction:column;gap:16px}
+.modal-stats-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;background:#edf2e4;padding:14px;border:1px solid var(--line)}
+.modal-stat-item{display:flex;flex-direction:column;gap:3px}
+.modal-stat-item span{font-size:.88rem;color:#677463}
+.modal-stat-item strong{font-size:1.35rem;color:#1e3223}
+
+.telegram-input-group{display:flex;flex-direction:column;gap:6px}
+.telegram-input-group label{font-size:.92rem;color:#4a5948;font-weight:500}
+.telegram-input-group input{padding:10px 12px;border:1px solid var(--line);background:#fff;font-size:1rem;color:#1a2b1e;outline:none}
+.telegram-input-group input:focus{border-color:#16858c}
+.telegram-input-group small{font-size:.82rem;color:#6d7a6b;line-height:1.4}
+
+@media(max-width:1100px){
+  .mass-odometer-banner{grid-template-columns:1fr;gap:14px}
+  .odometer-rate,.odometer-airflow{border-left:0;padding-left:0;border-top:1px solid #ffffff1a;padding-top:12px}
+}
+
