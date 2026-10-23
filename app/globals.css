@@ -319,6 +319,15 @@
 @media(max-width:600px){.assistant-fab span{display:none}.assistant-fab{padding:14px}.assistant-panel{right:8px;bottom:8px;width:calc(100vw - 16px);height:calc(100vh - 16px)}.report-sheet{padding:24px 18px}.report-kpis,.report-two{grid-template-columns:1fr 1fr}.header-actions{align-items:flex-start}}
 
 /* --- INFO TOOLTIPS & CAPTIONS --- */
+.info-tip{display:inline-grid;place-items:center;width:18px;height:18px;margin-left:6px;padding:0;border:1.5px solid currentColor;border-radius:50%;background:transparent;color:inherit;opacity:.7;font:italic 700 11px/1 Georgia,serif;letter-spacing:0;vertical-align:middle;cursor:help;transition:opacity .15s,background .15s,transform .15s;flex-shrink:0}
+.info-tip:hover,.info-tip:focus-visible,.info-tip[aria-expanded="true"]{opacity:1;background:#16858c;border-color:#16858c;color:#fff;outline:none;transform:scale(1.08)}
+h1 .info-tip{width:24px;height:24px;font-size:14px;vertical-align:.35em}
+.info-pop{position:fixed;z-index:3000;padding:14px 16px;background:#13201a;color:#e9efe0;border:1px solid #2f4836;border-radius:6px;box-shadow:0 16px 38px #0b140e70;font:400 14px/1.55 'Playfair Display',Georgia,serif;letter-spacing:0;text-transform:none;text-align:left;white-space:normal;pointer-events:none;animation:tipIn .14s ease-out}
+.info-pop.above{transform:translateY(-100%)}
+.info-pop strong{display:block;margin-bottom:6px;color:#c0e088;font-weight:600;font-size:15px}
+.info-pop b{color:#9fd2c9;font-weight:600}
+.info-pop code{display:block;margin:7px 0;padding:5px 8px;background:#0b1510;border:1px solid #2b4a3a;border-radius:4px;color:#86e0c8;font:500 12.5px/1.4 ui-monospace,Consolas,monospace}
+@keyframes tipIn{from{opacity:0}to{opacity:1}}
 .guide{margin-top:14px;background:#eef6f3;border:1px solid #bfdcd5;border-left:5px solid #16858c;padding:14px 18px 16px;color:#1f3a33}
 .guide>header{display:flex;align-items:center;gap:8px;font-size:.8rem;letter-spacing:1.4px;text-transform:uppercase;color:#14777d;font-weight:600;margin-bottom:10px}
 .guide-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px 22px}

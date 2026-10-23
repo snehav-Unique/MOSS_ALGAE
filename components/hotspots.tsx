@@ -4,7 +4,7 @@ import {useCallback, useEffect, useState} from 'react';
 import {AlertTriangle, Flame, LoaderCircle, RefreshCw, ShieldCheck} from 'lucide-react';
 import {API, CANDIDATE_SITES, NAAQS_PM25_24H, WHO_PM25_24H, fetchCurrentAir, pmBand} from '../lib/air';
 import {useLeafletMap} from './use-leaflet-map';
-import {Guide} from './info';
+import {InfoTip} from './info';
 
 type Station = {id:string|number; name:string; provider:string|null; reference_grade:boolean|null; lat:number; lng:number; pm25:number; measured_at:string|null; age_hours:number|null; flags:string[]; status:'hotspot'|'elevated'|'within_who'|'unverified'; source_url?:string};
 
@@ -76,17 +76,11 @@ export function Hotspots() {
 
     {mode === 'modeled' && <div className="feature-notice"><AlertTriangle size={18}/><p><strong>Showing modeled values, not measurements.</strong> {notice} Set <code>OPENAQ_API_KEY</code> on the API service to load measured stations. Open-Meteo uses a coarse model grid, so nearby areas often share one value.</p></div>}
 
-    <Guide title="What the counts mean" columns={4} items={[
-      {title:'Above NAAQS (60 µg/m³)', body:'Verified readings above India’s 24-hour PM2.5 limit. These are the priority places for pods.'},
-      {title:'Above WHO (15 µg/m³)', body:'Within India’s limit but above the stricter WHO health guideline.'},
-      {title:'Unverified', body:'Readings older than 3 hours (stale) or more than 3× the network median (outlier, often a faulty sensor). Shown dashed grey on the map; never counted as hotspots.'},
-      {title:'Station list', body:'Highest PM2.5 first. Reference monitors are regulatory-grade instruments; low-cost sensors are cheaper and less precise. Click a row for details.'},
-    ]}/>
     <div className="hotspot-counts">
-      <div className="count-hotspot"><span>ABOVE NAAQS ({NAAQS_PM25_24H} µg/m³)</span><strong>{counts.hotspot}</strong></div>
-      <div className="count-elevated"><span>ABOVE WHO ({WHO_PM25_24H} µg/m³)</span><strong>{counts.elevated}</strong></div>
-      <div className="count-ok"><span>WITHIN WHO</span><strong>{counts.within_who}</strong></div>
-      <div className="count-unverified"><span>UNVERIFIED (STALE / OUTLIER)</span><strong>{counts.unverified}</strong></div>
+      <div className="count-hotspot"><span>ABOVE NAAQS ({NAAQS_PM25_24H} µg/m³) <InfoTip label="About hotspots"><strong>Hotspots</strong>Verified readings above India’s 24-hour PM2.5 limit of 60 µg/m³. These are the priority places for pods.</InfoTip></span><strong>{counts.hotspot}</strong></div>
+      <div className="count-elevated"><span>ABOVE WHO ({WHO_PM25_24H} µg/m³) <InfoTip label="About elevated"><strong>Elevated</strong>Within India’s limit but above the stricter WHO health guideline of 15 µg/m³.</InfoTip></span><strong>{counts.elevated}</strong></div>
+      <div className="count-ok"><span>WITHIN WHO <InfoTip label="About within WHO"><strong>Within WHO</strong>At or below the WHO 24-hour guideline of 15 µg/m³: the cleanest air category.</InfoTip></span><strong>{counts.within_who}</strong></div>
+      <div className="count-unverified"><span>UNVERIFIED (STALE / OUTLIER) <InfoTip label="About unverified"><strong>Readings we don’t trust yet</strong>Stale: older than 3 hours. Outlier: more than 3× the network median, often a faulty or badly placed sensor. Shown dashed grey on the map; never counted as hotspots.</InfoTip></span><strong>{counts.unverified}</strong></div>
     </div>
 
     <div className="planner-grid">
@@ -95,7 +89,7 @@ export function Hotspots() {
         <div className="feature-map"><div ref={node} className="feature-leaflet"/>{tileError && <div className="map-status">Live tiles unavailable · local Bengaluru map active</div>}<div className="map-legend">{[['#4f8a4b','≤ WHO'],['#c2a03a','≤ NAAQS'],['#d0703c','> NAAQS'],['#a8352e','> 90'],['#8c948a','Unverified']].map(([color, label]) => <span key={label}><i style={{background:color}}/>{label}</span>)}</div></div>
       </article>
       <article className="feature-panel station-list">
-        <div className="panel-heading"><div><span><Flame size={15}/> RANKED BY PM2.5</span><h2>{selected ? selected.name : 'Stations'}</h2></div></div>
+        <div className="panel-heading"><div><span><Flame size={15}/> RANKED BY PM2.5 <InfoTip label="About the station list"><strong>Station list</strong>Highest PM2.5 first. Reference monitors are regulatory-grade instruments; low-cost sensors are cheaper and less precise. Click a row or a map circle for details.</InfoTip></span><h2>{selected ? selected.name : 'Stations'}</h2></div></div>
         {selected && <div className="station-focus"><div><span>PM2.5</span><strong>{selected.pm25.toFixed(1)} <small>µg/m³</small></strong></div><div><span>MEASURED</span><strong>{selected.age_hours != null ? `${selected.age_hours} h ago` : '—'}</strong></div><div><span>PROVIDER</span><strong>{selected.provider ?? '—'}</strong></div><div><span>INSTRUMENT</span><strong>{selected.reference_grade == null ? 'Model' : selected.reference_grade ? 'Reference monitor' : 'Low-cost sensor'}</strong></div></div>}
         <div className="station-rows">{stations.map((station, index) => <button key={station.id} className={station.id === selectedId ? 'active' : ''} onClick={() => setSelectedId(station.id)}><b>{String(index + 1).padStart(2, '0')}</b><span><strong>{station.name}</strong><small>{station.age_hours != null ? `${station.age_hours} h old` : 'time unknown'}{station.flags.map(flag => <em key={flag} className={`flag flag-${flag}`}>{FLAG_LABEL[flag] ?? flag}</em>)}</small></span><span className={`status status-${station.status}`}>{station.pm25.toFixed(1)}</span></button>)}{!stations.length && !loading && <p className="muted">No stations returned.</p>}</div>
       </article>

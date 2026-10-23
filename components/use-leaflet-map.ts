@@ -4,6 +4,9 @@ import {useEffect, useRef, useState} from 'react';
 
 const OFFLINE_BOUNDS:[[number,number],[number,number]] = [[12.811801316582617,77.431640625],[13.06877673435769,77.6953125]];
 
+// Zoom only with the +/− buttons: no scroll-wheel, double-click or shift-drag zoom (dragging still pans).
+export const MAP_OPTIONS = {zoomControl:false, attributionControl:true, preferCanvas:true, scrollWheelZoom:false, doubleClickZoom:false, boxZoom:false};
+
 /** Leaflet map with OSM tiles over the bundled Bengaluru image; returns the map once ready. */
 export function useLeafletMap(fit:Array<[number,number]>) {
   const node = useRef<HTMLDivElement>(null);
@@ -17,7 +20,7 @@ export function useLeafletMap(fit:Array<[number,number]>) {
     let tileHealthTimer:ReturnType<typeof setTimeout>|null = null;
     import('leaflet').then(({default:L}) => {
       if (!active || !node.current) return;
-      map = L.map(node.current, {zoomControl:false, attributionControl:true, preferCanvas:true});
+      map = L.map(node.current, MAP_OPTIONS);
       L.control.zoom({position:'bottomleft'}).addTo(map);
       map.createPane('offlineMap');
       const offlinePane = map.getPane('offlineMap');

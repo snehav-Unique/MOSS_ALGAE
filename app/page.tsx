@@ -11,7 +11,8 @@ import {Hotspots} from '../components/hotspots';
 import {Planner} from '../components/planner';
 import {ReplayFrame, TwinReplay} from '../components/replay';
 import {Assistant, PlannerState} from '../components/assistant';
-import {Explain, Guide} from '../components/info';
+import {Guide, InfoTip} from '../components/info';
+import {MAP_OPTIONS} from '../components/use-leaflet-map';
 import {AnimatedNumber, LiveProvider, LiveStrip, Sparkline, Trend, ago, useLive, useNow} from '../components/live';
 
 const INITIAL_SITE = {lat: 12.9716, lng: 77.5946};
@@ -97,7 +98,7 @@ function MossExperience() {
       try {
         const nodes = [baselineMapNode.current, futureMapNode.current];
         const created = nodes.map((node, index) => {
-          const map = L.map(node, {zoomControl:false, attributionControl:true, preferCanvas:true}).setView([site.lat,site.lng],12);
+          const map = L.map(node, MAP_OPTIONS).setView([site.lat,site.lng],12);
           L.control.zoom({position:'bottomleft'}).addTo(map);
           map.createPane('offlineMap');
           const offlinePane=map.getPane('offlineMap');
@@ -324,7 +325,7 @@ function Locations({totalUnits,setTotalUnits,mossEfficiency,algaeEfficiency,hour
     import('leaflet').then(({default:L})=>{
       if(!active||!locationsMapNode.current)return;
       try {
-        const map=L.map(locationsMapNode.current,{zoomControl:false,attributionControl:true,preferCanvas:true});
+        const map=L.map(locationsMapNode.current,MAP_OPTIONS);
         L.control.zoom({position:'bottomleft'}).addTo(map);
         map.createPane('offlineMap');
         const offlinePane=map.getPane('offlineMap');
@@ -839,9 +840,8 @@ function ChamberSensors({mossEfficiency,algaeEfficiency,onApplyEfficiency}:{moss
     <header className="sensors-header">
       <div>
         <p className="kicker">CHAMBER IOT / REAL-TIME HARDWARE TELEMETRY</p>
-        <h1>Physical Sensor Suite</h1>
+        <h1>Physical Sensor Suite <InfoTip label="How this chamber works"><strong>How this chamber works</strong>1 · A fan pulls polluted air in; MQ-135 sensor #1 measures it at the intake.<br/>2 · The air passes a living moss mat, then a microalgae stage that treats what the moss missed. A DHT22 probe checks temperature and humidity.<br/>3 · MQ-135 sensor #2 measures the cleaned air at the exhaust. The difference between intake and exhaust is the filter’s measured effect.</InfoTip></h1>
         <p>Live stream from dual Robocraze MQ-135 hazardous gas sensors and DHT22 digital microclimate probe in the active moss-algae chamber.</p>
-        <Explain>Air in → moss → algae → air out. Each card below is one point on that path; the difference between intake and exhaust is the filter’s measured effect.</Explain>
       </div>
       <div className="sensors-actions">
         <button className="sensor-btn secondary" onClick={fetchLive} disabled={refreshing} title="Fetch the latest reading from the backend now">
@@ -865,22 +865,17 @@ function ChamberSensors({mossEfficiency,algaeEfficiency,onApplyEfficiency}:{moss
       </div>
     </header>
 
-    <Guide title="How this chamber works" columns={3} items={[
-      {title:'1 · Air goes in', body:'A fan pulls polluted room or street air into the chamber. MQ-135 gas sensor #1 measures it at the intake: this is the “dirty air” baseline.'},
-      {title:'2 · Moss, then algae', body:'The air passes a living moss mat first, then a microalgae stage that treats only what the moss missed. A DHT22 probe checks the temperature and humidity the biology needs.'},
-      {title:'3 · Air comes out', body:'MQ-135 sensor #2 measures the cleaned air at the exhaust. The difference between intake and exhaust is the filter’s measured effect, shown in the cards and chart below.'},
-    ]}/>
 
     <div className="device-compatibility" aria-label="Supported controller and connection modes">
       <div className="device-choice">
-        <span>CONTROLLER</span>
+        <span>CONTROLLER <InfoTip label="About controllers"><strong>Which board reads the sensors</strong>ESP32 can send data over Wi-Fi, Bluetooth or USB; Arduino Uno over USB only. Your choice updates the wiring guide; the board actually in use is detected automatically from each reading.</InfoTip></span>
         <div className="device-toggle">
           <button className={selectedBoard === 'esp32' ? 'active' : ''} onClick={() => selectBoard('esp32')}><Cpu size={16}/> ESP32</button>
           <button className={selectedBoard === 'arduino' ? 'active' : ''} onClick={() => selectBoard('arduino')}><Cpu size={16}/> Arduino</button>
         </div>
       </div>
       <div className="device-choice transport-choice">
-        <span>CONNECTION</span>
+        <span>CONNECTION <InfoTip label="About connection modes"><strong>How readings reach the dashboard</strong><b>Wi-Fi:</b> the ESP32 posts each reading to /api/sensors/reading.<br/><b>Bluetooth:</b> the paired ESP32 appears as a serial port and the Python bridge forwards it.<br/><b>Wired USB:</b> the backend reads JSON lines at 115200 baud.<br/>Greyed-out modes aren’t supported by the selected board.</InfoTip></span>
         <div className="device-toggle">
           {(['wifi','bluetooth','wired'] as const).map(mode => {
             const supported = selectedBoard === 'esp32' || mode === 'wired';
@@ -931,7 +926,7 @@ function ChamberSensors({mossEfficiency,algaeEfficiency,onApplyEfficiency}:{moss
         </small>
       </div>
       <div className="connection-detail">
-       {' '}
+        <InfoTip label="About connection status"><strong>Status light</strong>Green: a reading arrived in the last 10 seconds. Yellow: still waiting for a board, Wi-Fi/Bluetooth data or the simulation. Simulated streams are always labelled “Simulation”, never as real hardware.</InfoTip>{' '}
         {hardware?.active
           ? 'Physical Sensors Live (Dual MQ-135 + DHT22)'
           : live?.timestamp
@@ -940,11 +935,6 @@ function ChamberSensors({mossEfficiency,algaeEfficiency,onApplyEfficiency}:{moss
       </div>
     </div>
 
-    <Guide title="Controller and connection" columns={3} items={[
-      {title:'Controller', body:'The microcontroller that reads the sensors. ESP32 can send data over Wi-Fi, Bluetooth or USB; Arduino Uno over USB only. Your choice updates the wiring guide; the board in use is detected automatically from each reading.'},
-      {title:'Connection modes', body:'Wi-Fi: the ESP32 posts each reading straight to /api/sensors/reading. Bluetooth: the paired ESP32 appears as a serial port and the Python bridge forwards it. Wired USB: the backend reads JSON lines at 115200 baud. Greyed-out modes aren’t supported by the selected board.'},
-      {title:'Status light', body:'Green: a reading arrived in the last 10 seconds. Yellow: still waiting for a board, Wi-Fi/Bluetooth data or the simulation. Simulated streams are always labelled “Simulation”, never as real hardware.'},
-    ]}/>
 
     {/* Trial Run Recording Banner */}
     {trialActive && (
@@ -966,7 +956,7 @@ function ChamberSensors({mossEfficiency,algaeEfficiency,onApplyEfficiency}:{moss
     {/* Live Mass Capture Odometer */}
     <div className="mass-odometer-banner">
       <div className="odometer-main">
-        <span className="odometer-tag"><Droplets size={15}/> LIVE POLLUTANT MASS ODOMETER</span>
+        <span className="odometer-tag"><Droplets size={15}/> LIVE POLLUTANT MASS ODOMETER <InfoTip label="How the odometer is calculated"><strong>Running total of pollutant removed</strong>Each reading adds airflow × measured efficiency × intake concentration × 2 seconds (the polling interval).<code>g += Q × η × C_in × 2 s</code>Uses a simplified 1 ppm ≈ 1 mg/m³ conversion and uncalibrated MQ-135 values, so read it as a trend, not a lab-grade mass. Counts this browser session only.</InfoTip></span>
         <div className="odometer-counter">
           {cumulativeMassGrams.toFixed(4)}<small>grams removed</small>
         </div>
@@ -982,7 +972,7 @@ function ChamberSensors({mossEfficiency,algaeEfficiency,onApplyEfficiency}:{moss
       </div>
 
       <div className="odometer-rate">
-        <span>Instantaneous Removal Rate</span>
+        <span>Instantaneous Removal Rate <InfoTip label="About removal rate and CADR"><strong>How fast the filter is cleaning now</strong>From the latest reading only.<code>g/day = Q × η × C_in × 24 ÷ 10⁶</code><b>CADR</b> (clean air delivery rate) is the volume of air made effectively clean each hour; higher means a bigger cleaning effect.<code>CADR = Q × η</code></InfoTip></span>
         <strong>{dailyRateGrams.toFixed(2)} g/day</strong>
         <small style={{color: '#8da892'}}>
           CADR = {(airflow * (effPercent / 100)).toFixed(1)} m³/h at current efficiency
@@ -991,7 +981,7 @@ function ChamberSensors({mossEfficiency,algaeEfficiency,onApplyEfficiency}:{moss
 
       <div className="odometer-airflow">
         <label>
-          <span>Fan Airflow Rating (Q)</span>
+          <span>Fan Airflow Rating (Q) <InfoTip label="About airflow"><strong>How much air the fan pushes through</strong>Set this to your blower’s rated flow in m³/h (CFM × 1.7). It isn’t measured by a sensor; it scales the odometer, removal rate and CADR. Air that moves too fast may lose some removal per pass.</InfoTip></span>
           <strong>{airflow} m³/h</strong>
         </label>
         <input
@@ -1006,31 +996,24 @@ function ChamberSensors({mossEfficiency,algaeEfficiency,onApplyEfficiency}:{moss
       </div>
     </div>
 
-    <Guide title="What the mass counter means" columns={3} items={[
-      {title:'Pollutant mass odometer', body:'A running total of pollutant removed in this browser session. Each reading adds airflow × measured efficiency × intake concentration × 2 seconds (the polling interval). It uses a simplified conversion (1 ppm ≈ 1 mg/m³) and uncalibrated MQ-135 values, so read it as a trend, not a lab-grade mass.', formula:'g += Q × η × C_in × 2 s'},
-      {title:'Removal rate and CADR', body:'How fast the filter is cleaning right now, from the latest reading only. CADR (clean air delivery rate) is the volume of air made effectively clean each hour; a higher CADR means a bigger cleaning effect.', formula:'g/day = Q × η × C_in × 24 ÷ 10⁶ · CADR = Q × η'},
-      {title:'Fan airflow (Q)', body:'Set this to your blower’s rated flow in m³/h (CFM × 1.7). It is not measured by a sensor; it scales the odometer, removal rate and CADR. More airflow treats more air, but air that moves too fast may lose some removal per pass.'},
-    ]}/>
 
     <div className="sensors-kpi-grid">
       <article className="sensor-kpi-card inlet-card">
-        <div className="card-tag"><span>01 / INTAKE AIR</span><small>MQ-135 #1 · {selectedBoard === 'esp32' ? 'GPIO34' : 'Pin A0'}</small></div>
+        <div className="card-tag"><span>01 / INTAKE AIR <InfoTip label="About intake reading"><strong>Dirty air going in</strong>MQ-135 #1 at the chamber intake: the baseline the filter works against. It reacts to a mix of gases (ammonia, nitrogen oxides, benzene, smoke, CO₂) and reports an estimated ppm. Needs a 24–48 h warm-up and calibration; changes over time are more reliable than the absolute number.</InfoTip></span><small>MQ-135 #1 · {selectedBoard === 'esp32' ? 'GPIO34' : 'Pin A0'}</small></div>
         <h3>Pre-Filter Gas PPM</h3>
         <div className="reading-val">{live ? live.inlet_ppm.toFixed(1) : '—'}<small>ppm</small></div>
-        <Explain>The baseline: what the filter has to work against.</Explain>
         <div className="sensor-status-badge info">Intake / Dirty Air Baseline</div>
       </article>
 
       <article className="sensor-kpi-card outlet-card">
-        <div className="card-tag"><span>02 / PURIFIED AIR</span><small>MQ-135 #2 · {selectedBoard === 'esp32' ? 'GPIO35' : 'Pin A1'}</small></div>
+        <div className="card-tag"><span>02 / PURIFIED AIR <InfoTip label="About exhaust reading"><strong>Cleaned air coming out</strong>MQ-135 #2 at the exhaust, after both biological stages. Same sensor type as the intake, so the two are directly comparable. Lower than the intake means pollutants are being captured inside the chamber.</InfoTip></span><small>MQ-135 #2 · {selectedBoard === 'esp32' ? 'GPIO35' : 'Pin A1'}</small></div>
         <h3>Post-Filter Gas PPM</h3>
         <div className="reading-val">{live ? live.outlet_ppm.toFixed(1) : '—'}<small>ppm</small></div>
-        <Explain>Lower than intake = pollutants captured inside the chamber.</Explain>
         <div className="sensor-status-badge optimal">Exhaust / Treated Air Stream</div>
       </article>
 
       <article className="sensor-kpi-card highlight">
-        <div className="card-tag"><span>03 / EFFICIENCY</span><small>Single-Pass Δ</small></div>
+        <div className="card-tag"><span>03 / EFFICIENCY <InfoTip label="How efficiency is calculated"><strong>Share removed in one pass</strong><code>η = (C_in − C_out) ÷ C_in × 100</code>Example: 450 ppm in, 280 ppm out → 38%, i.e. about 4 of every 10 parts removed per pass. “Apply to Digital Twin” copies this measured value into the city model.</InfoTip></span><small>Single-Pass Δ</small></div>
         <h3>Measured Removal</h3>
         <div className="reading-val" style={{color: '#16858c'}}>
           {live?.efficiency != null ? `${live.efficiency.toFixed(1)}%` : '—'}
@@ -1038,7 +1021,6 @@ function ChamberSensors({mossEfficiency,algaeEfficiency,onApplyEfficiency}:{moss
         <span style={{fontSize: '0.9rem', color: '#687766'}}>
           {deltaPpm != null ? `Δ −${deltaPpm.toFixed(1)} ppm reduction` : 'Awaiting sensor delta'}
         </span>
-        <Explain>{live?.efficiency != null ? `About ${Math.round(live.efficiency / 10)} of every 10 parts of pollutant are removed per pass.` : 'Shows once both sensors report.'}</Explain>
         {live?.efficiency != null && (
           <button
             className="sensor-btn accent"
@@ -1051,25 +1033,18 @@ function ChamberSensors({mossEfficiency,algaeEfficiency,onApplyEfficiency}:{moss
       </article>
 
       <article className="sensor-kpi-card climate-card">
-        <div className="card-tag"><span>04 / CHAMBER MICROCLIMATE</span><small>Robocraze DHT22 · {selectedBoard === 'esp32' ? 'GPIO4' : 'Pin D2'}</small></div>
+        <div className="card-tag"><span>04 / CHAMBER MICROCLIMATE <InfoTip label="Why climate matters"><strong>Keeping the biology alive</strong>DHT22 probe inside the chamber. Moss filters best at ≥65% humidity and stops below 50%. Algae grow best at 20–29 °C and can crash above 32 °C. Alerts and Telegram messages fire when these limits are crossed.</InfoTip></span><small>Robocraze DHT22 · {selectedBoard === 'esp32' ? 'GPIO4' : 'Pin D2'}</small></div>
         <h3>Temp & Humidity</h3>
         <div className="reading-val">
           {live?.temperature != null ? `${live.temperature.toFixed(1)}°C` : '—'}
           <small style={{marginLeft: '12px'}}>{live?.humidity != null ? `${live.humidity.toFixed(0)}% RH` : '—'}</small>
         </div>
-        <Explain>Moss wants ≥65% RH · algae want 20–29 °C.</Explain>
         <div className="sensor-status-badge optimal">
           {live?.health ? `${live.health.moss_status} · ${live.health.algae_status}` : 'Microclimate Monitor'}
         </div>
       </article>
     </div>
 
-    <Guide title="What each sensor card shows" columns={4} items={[
-      {title:'01 · Intake air', body:'MQ-135 #1 at the chamber intake. It reacts to a mix of polluting gases (ammonia, nitrogen oxides, benzene, smoke, CO₂) and reports an estimated ppm. Needs a 24–48 h warm-up and calibration; changes over time are more reliable than the absolute number.'},
-      {title:'02 · Purified air', body:'MQ-135 #2 at the exhaust, after both biological stages. Same sensor type as the intake, so the two are directly comparable. Lower than the intake means pollutants are being captured inside the chamber.'},
-      {title:'03 · Measured removal', body:'The share of pollutant removed in one pass through the chamber. Example: 450 ppm in and 280 ppm out means 38% removed. “Apply to Digital Twin” copies this real value into the city model.', formula:'η = (C_in − C_out) ÷ C_in × 100'},
-      {title:'04 · Chamber microclimate', body:'DHT22 probe inside the chamber. Moss filters best at 65% humidity or more and stops working below 50%. Algae grow best at 20–29 °C and can crash above 32 °C. Alerts and Telegram messages fire when these limits are crossed.'},
-    ]}/>
 
     {(live?.health?.moss_alert || live?.health?.algae_alert) && (
       <div className="chamber-alert-box">
@@ -1082,9 +1057,8 @@ function ChamberSensors({mossEfficiency,algaeEfficiency,onApplyEfficiency}:{moss
       <article className="sensor-telemetry-panel">
         <div className="panel-title">
           <div>
-            <span>TIME-SERIES TELEMETRY</span>
+            <span>TIME-SERIES TELEMETRY <InfoTip label="How to read this chart"><strong>Reading the chart</strong>Brown: intake (MQ-135 #1). Teal: exhaust (MQ-135 #2). The gap between them is what the filter removes. A steady wide gap means it’s working; lines drifting together suggest dry moss, saturated media or sensors needing recalibration. Shows the latest 60 readings.</InfoTip></span>
             <h2>Inlet vs Outlet Gas Concentration</h2>
-            <Explain>Bigger gap between the lines = more pollution removed.</Explain>
           </div>
           <small style={{color: '#717e6e'}}>{history.length} samples logged</small>
         </div>
@@ -1126,7 +1100,7 @@ function ChamberSensors({mossEfficiency,algaeEfficiency,onApplyEfficiency}:{moss
         <div className="efficiency-visualizer">
           <div className="efficiency-bar-wrapper">
             <div className="efficiency-bar-label">
-              <span>Instantaneous Single-Pass Filter Efficiency</span>
+              <span>Instantaneous Single-Pass Filter Efficiency <InfoTip label="About this bar"><strong>Latest efficiency as a bar</strong>Fills to the percentage removed by the most recent reading. Lab biofilters typically remove tens of percent per pass; very high or jumpy values usually mean the sensors are warming up or need calibration.</InfoTip></span>
               <strong>{live?.efficiency != null ? `${live.efficiency.toFixed(1)}%` : '0%'}</strong>
             </div>
             <div className="efficiency-bar">
@@ -1138,18 +1112,13 @@ function ChamberSensors({mossEfficiency,algaeEfficiency,onApplyEfficiency}:{moss
           </small>
         </div>
 
-        <Guide title="Reading the chart" columns={2} items={[
-          {title:'The two lines', body:'Brown is the intake (MQ-135 #1), teal is the exhaust (MQ-135 #2). The gap between them is what the filter removes. A steady, wide gap means it is working; lines drifting together suggest dry moss, saturated media or sensors that need recalibration. Shows the latest 60 readings.'},
-          {title:'The efficiency bar', body:'Fills to the percentage removed by the most recent reading. Lab biofilters typically remove tens of percent per pass; very high or jumpy values usually mean the sensors are still warming up or need calibration.'},
-        ]}/>
       </article>
 
       <article className="sensor-guide-panel">
         <div className="panel-title">
           <div>
-            <span>WIRING & PIN REFERENCE</span>
+            <span>WIRING & PIN REFERENCE <InfoTip label="About the wiring map"><strong>Where each wire goes</strong>Each sensor has signal, power and ground wires. The MQ-135 signal is analog, so it goes to A0/A1 on Arduino or GPIO34/35 on ESP32 (these keep working while Wi-Fi is on). The DHT22 sends digital data on one pin. Pins update when you switch boards above.<br/><br/><b>⚠ Safety:</b> ESP32 pins accept at most 3.3 V. If an MQ-135 module runs on 5 V, add a voltage divider on its AOUT wire.</InfoTip></span>
             <h2>Hardware Connection Map</h2>
-            <Explain>Pins update when you switch between ESP32 and Arduino above.</Explain>
           </div>
         </div>
 
@@ -1185,10 +1154,6 @@ function ChamberSensors({mossEfficiency,algaeEfficiency,onApplyEfficiency}:{moss
           </tbody>
         </table>
 
-        <Guide title="Where each wire goes" columns={1} items={[
-          {title:'Signal, power, ground', body:'Each sensor has three wires. The MQ-135 signal is analog, so it goes to an analog-capable pin (A0/A1 on Arduino; GPIO34/35 on ESP32, which keep working while Wi-Fi is on). The DHT22 sends digital data on a single pin.'},
-          {title:'⚠ ESP32 voltage safety', body:'ESP32 pins accept at most 3.3 V. If an MQ-135 module is powered at 5 V, add a voltage divider on its AOUT wire before GPIO34/35 to avoid damaging the board.'},
-        ]}/>
 
         <div className="chamber-alert-box" style={{marginTop: '20px', background: '#f5faf6', borderColor: '#538257', color: '#274b29'}}>
           <strong>🔌 {selectedBoard === 'esp32' ? 'ESP32' : 'Arduino'} setup:</strong>
