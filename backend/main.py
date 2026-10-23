@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import os
 import statistics
@@ -10,7 +12,15 @@ import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, model_validator
-from typing import Literal
+from typing import Literal, Optional
+
+import sys
+from pathlib import Path
+
+# Ensure backend directory is in sys.path for local module imports
+_backend_dir = str(Path(__file__).resolve().parent)
+if _backend_dir not in sys.path:
+    sys.path.insert(0, _backend_dir)
 
 try:
     import serial
@@ -246,9 +256,9 @@ class ChatTurn(BaseModel):
 
 class AssistantRequest(BaseModel):
     history: list[ChatTurn] = Field(min_length=1, max_length=20)
-    planner: dict | None = None
+    planner: Optional[dict] = None
 
-def assistant_handlers(planner: dict | None) -> dict:
+def assistant_handlers(planner: Optional[dict]) -> dict:
     async def get_planner_state(_):
         if not planner:
             return {'error': 'The Planner has not been opened in this browser session yet, so no candidate scores are loaded. Ask the user to open the Planner tab once.'}
@@ -340,9 +350,9 @@ def list_suggestions():
 class SensorReading(BaseModel):
     inlet_ppm: float = Field(ge=0, description="Raw input air gas concentration (MQ-135 #1)")
     outlet_ppm: float = Field(ge=0, description="Purified output air gas concentration (MQ-135 #2)")
-    efficiency: float | None = Field(default=None, ge=0, le=100, description="Calculated single-pass efficiency %")
-    temperature: float | None = Field(default=None, description="Chamber temperature in Celsius (DHT22)")
-    humidity: float | None = Field(default=None, description="Chamber relative humidity % (DHT22)")
+    efficiency: Optional[float] = Field(default=None, ge=0, le=100, description="Calculated single-pass efficiency %")
+    temperature: Optional[float] = Field(default=None, description="Chamber temperature in Celsius (DHT22)")
+    humidity: Optional[float] = Field(default=None, description="Chamber relative humidity % (DHT22)")
     device_id: str = Field(default="robocraze_chamber_01", description="Microcontroller or station ID")
     board_type: Literal["arduino", "esp32", "simulator"] = "arduino"
     transport: Literal["wired", "wifi", "bluetooth", "simulation"] = "wired"
@@ -360,7 +370,7 @@ class SensorReading(BaseModel):
 
 sensor_telemetry_history: list = []
 latest_sensor_reading: dict = None
-latest_sensor_received_at: float | None = None
+latest_sensor_received_at: Optional[float] = None
 
 DEVICE_CAPABILITIES = {
     "esp32": ["wifi", "bluetooth", "wired"],
@@ -368,7 +378,7 @@ DEVICE_CAPABILITIES = {
     "simulator": ["simulation"],
 }
 
-def evaluate_chamber_health(temperature: float | None, humidity: float | None) -> dict:
+def evaluate_chamber_health(temperature: Optional[float], humidity: Optional[float]) -> dict:
     moss_status = "Optimal"
     moss_alert = None
     if humidity is not None:
@@ -657,7 +667,7 @@ class SimulationInputs(BaseModel):
     chamber_volume_m3: float = Field(gt=0)
     elapsed_seconds: float = Field(ge=0)
     step_seconds: float = Field(default=1.5, gt=0, le=10)
-    previous_outlet_ppm: float | None = Field(default=None, ge=0)
+    previous_outlet_ppm: Optional[float] = Field(default=None, ge=0)
 
 @app.post('/api/sensors/simulate')
 def simulate_sensor_tick(inputs: SimulationInputs):

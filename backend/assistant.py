@@ -2,7 +2,10 @@
 import json
 from typing import Awaitable, Callable
 
-import anthropic
+try:
+    import anthropic
+except ImportError:
+    anthropic = None
 
 MODEL = 'claude-opus-5-5'
 MAX_TOOL_ROUNDS = 8
@@ -54,8 +57,10 @@ Handler = Callable[[dict], Awaitable[dict]]
 class AssistantUnavailable(Exception):
     pass
 
-async def ask(history: list[dict], handlers: dict[str, Handler], client: anthropic.AsyncAnthropic | None = None) -> dict:
+async def ask(history: list[dict], handlers: dict[str, Handler], client = None) -> dict:
     """history: [{'role': 'user'|'assistant', 'text': str}], ending with the user's question."""
+    if anthropic is None:
+        raise AssistantUnavailable('Anthropic python package not installed.')
     client = client or anthropic.AsyncAnthropic()
     messages: list = [{'role': turn['role'], 'content': turn['text']} for turn in history]
     calls = []

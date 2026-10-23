@@ -26,3 +26,6 @@ Thumbs.db
 # Local browser/map diagnostics
 .chrome-*/
 .map-*
+
+# Local Arduino libraries
+arduino/libraries/

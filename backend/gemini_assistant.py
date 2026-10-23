@@ -2,8 +2,13 @@
 import json
 import os
 
-from google import genai
-from google.genai import errors, types
+try:
+    from google import genai
+    from google.genai import errors, types
+except ImportError:
+    genai = None
+    errors = None
+    types = None
 
 try:
     from .assistant import MAX_TOOL_ROUNDS, SYSTEM_PROMPT, TOOLS, AssistantUnavailable, Handler
@@ -15,10 +20,15 @@ DEFAULT_MODEL = 'gemini-3.5-flash-lite'
 TIMEOUT_MS = 45000
 BLOCKED = {'SAFETY', 'PROHIBITED_CONTENT', 'BLOCKLIST', 'SPII', 'RECITATION'}
 
-FUNCTIONS = [types.FunctionDeclaration(name=t['name'], description=t['description'], parameters_json_schema=t['input_schema']) for t in TOOLS]
+if types is not None:
+    FUNCTIONS = [types.FunctionDeclaration(name=t['name'], description=t['description'], parameters_json_schema=t['input_schema']) for t in TOOLS]
+else:
+    FUNCTIONS = []
 
 
 def has_key() -> bool:
+    if genai is None:
+        return False
     return bool(os.getenv('GEMINI_API_KEY') or os.getenv('GOOGLE_API_KEY'))
 
 

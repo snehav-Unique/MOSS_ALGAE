@@ -18,12 +18,12 @@
 
 // --- Wi-Fi Configuration ---
 // Enter your Wi-Fi credentials here:
-const char* ssid     = "YOUR_WIFI_NAME";
-const char* password = "YOUR_WIFI_PASSWORD";
+const char* ssid     = "FUCK YOU";
+const char* password = "dengai123";
 
 // --- FastAPI Backend Server URL ---
-// Your computer's current local IP address is 172.17.12.124:
-const char* serverUrl = "http://172.17.12.124:8000/api/sensors/reading";
+// Your computer's current local IP address is 172.17.5.165:
+const char* serverUrl = "http://172.17.5.165:8000/api/sensors/reading";
 
 // --- Optional: Direct Telegram Bot Alerts ---
 // Enter your Telegram Bot Token & Chat ID here to get alerts even if computer is off:
@@ -89,69 +89,82 @@ float getPPM(float rs, float r0) {
 
 void setup() {
   Serial.begin(115200);
-  pinMode(2, OUTPUT); // Onboard blue LED on most ESP32 boards
+  pinMode(2, OUTPUT); // Onboard blue LED
   dht.begin();
 
   Serial.println("\n🌿 Connecting to Wi-Fi: " + String(ssid));
   WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
+  unsigned long startWifi = millis();
+  while (WiFi.status() != WL_CONNECTED && (millis() - startWifi < 6000)) {
+    delay(400);
     Serial.print(".");
-    digitalWrite(2, !digitalRead(2)); // Blink while connecting
+    digitalWrite(2, !digitalRead(2)); // Blink while trying
   }
-  digitalWrite(2, HIGH); // Solid blue when connected
-  Serial.println("\n✅ Connected to Wi-Fi! ESP32 IP: " + WiFi.localIP().toString());
-  Serial.println("Target Backend: " + String(serverUrl));
 
-  delay(1500);
+  if (WiFi.status() == WL_CONNECTED) {
+    digitalWrite(2, HIGH);
+    Serial.println("\n✅ Connected to Wi-Fi! ESP32 IP: " + WiFi.localIP().toString());
+    Serial.println("Target Backend: " + String(serverUrl));
+  } else {
+    digitalWrite(2, LOW);
+    Serial.println("\n⚠️ Wi-Fi not connected yet. Operating in Wired USB Serial mode!");
+  }
+
+  delay(1000);
   R0_inlet = getResistance(MQ135_INLET_PIN) / R0_CLEAN_AIR_FACTOR;
   R0_outlet = getResistance(MQ135_OUTLET_PIN) / R0_CLEAN_AIR_FACTOR;
   if (R0_inlet <= 0) R0_inlet = 10.0;
   if (R0_outlet <= 0) R0_outlet = 10.0;
 }
 
+unsigned long lastWifiRetry = 0;
+
 void loop() {
-  if (WiFi.status() == WL_CONNECTED) {
-    // 1. Read DHT22
-    float humidity = dht.readHumidity();
-    float temperature = dht.readTemperature();
-    bool dht_valid = !isnan(humidity) && !isnan(temperature);
+  // 1. Read DHT22
+  float humidity = dht.readHumidity();
+  float temperature = dht.readTemperature();
+  bool dht_valid = !isnan(humidity) && !isnan(temperature);
 
-    // 2. Read MQ-135 sensors
-    float rs_inlet = getResistance(MQ135_INLET_PIN);
-    float rs_outlet = getResistance(MQ135_OUTLET_PIN);
-    float inlet_ppm = getPPM(rs_inlet, R0_inlet);
-    float outlet_ppm = getPPM(rs_outlet, R0_outlet);
+  // 2. Read MQ-135 sensors
+  float rs_inlet = getResistance(MQ135_INLET_PIN);
+  float rs_outlet = getResistance(MQ135_OUTLET_PIN);
+  float inlet_ppm = getPPM(rs_inlet, R0_inlet);
+  float outlet_ppm = getPPM(rs_outlet, R0_outlet);
 
-    // 3. Compute efficiency
-    float efficiency = 0.0;
-    if (inlet_ppm > 0) {
-      efficiency = ((inlet_ppm - outlet_ppm) / inlet_ppm) * 100.0;
-      if (efficiency < 0.0) efficiency = 0.0;
-      if (efficiency > 95.0) efficiency = 95.0;
-    }
+  // 3. Compute efficiency
+  float efficiency = 0.0;
+  if (inlet_ppm > 0) {
+    efficiency = ((inlet_ppm - outlet_ppm) / inlet_ppm) * 100.0;
+    if (efficiency < 0.0) efficiency = 0.0;
+    if (efficiency > 95.0) efficiency = 95.0;
+  }
 
-    // 4. HTTP POST JSON to FastAPI
+  bool is_wifi = (WiFi.status() == WL_CONNECTED);
+
+  // 4. Build JSON Telemetry Payload
+  String jsonPayload = "{";
+  jsonPayload += "\"inlet_ppm\":" + String(inlet_ppm, 2) + ",";
+  jsonPayload += "\"outlet_ppm\":" + String(outlet_ppm, 2) + ",";
+  jsonPayload += "\"efficiency\":" + String(efficiency, 2) + ",";
+  jsonPayload += "\"temperature\":" + (dht_valid ? String(temperature, 1) : "null") + ",";
+  jsonPayload += "\"humidity\":" + (dht_valid ? String(humidity, 1) : "null") + ",";
+  jsonPayload += "\"device_id\":\"esp32_" + (is_wifi ? WiFi.localIP().toString() : "wired") + "\",";
+  jsonPayload += "\"board_type\":\"esp32\",";
+  jsonPayload += "\"transport\":\"" + String(is_wifi ? "wifi" : "wired") + "\"";
+  jsonPayload += "}";
+
+  // Always output clean JSON over USB Serial for the backend auto-scanner
+  Serial.println(jsonPayload);
+
+  // 5. If Wi-Fi is active, also HTTP POST directly to FastAPI
+  if (is_wifi) {
+    digitalWrite(2, HIGH);
     HTTPClient http;
     http.begin(serverUrl);
     http.addHeader("Content-Type", "application/json");
-
-    String jsonPayload = "{";
-    jsonPayload += "\"inlet_ppm\":" + String(inlet_ppm, 2) + ",";
-    jsonPayload += "\"outlet_ppm\":" + String(outlet_ppm, 2) + ",";
-    jsonPayload += "\"efficiency\":" + String(efficiency, 2) + ",";
-    jsonPayload += "\"temperature\":" + (dht_valid ? String(temperature, 1) : "null") + ",";
-    jsonPayload += "\"humidity\":" + (dht_valid ? String(humidity, 1) : "null") + ",";
-    jsonPayload += "\"device_id\":\"esp32_wifi_" + WiFi.localIP().toString() + "\",";
-    jsonPayload += "\"board_type\":\"esp32\",";
-    jsonPayload += "\"transport\":\"wifi\"";
-    jsonPayload += "}";
-
     int httpCode = http.POST(jsonPayload);
-    Serial.println("POST " + String(httpCode) + " -> " + jsonPayload);
     http.end();
 
-    // 5. Direct Telegram Alerts on Critical Conditions
     if (dht_valid) {
       if (temperature > 32.0) {
         sendTelegramAlertDirect("🚨 MOSS-ALGAE ALERT: High Temp " + String(temperature, 1) + "°C! Algal thermal stress.");
@@ -159,10 +172,12 @@ void loop() {
         sendTelegramAlertDirect("⚠️ MOSS-ALGAE ALERT: Low Humidity " + String(humidity, 1) + "%! Moss drying out.");
       }
     }
-
   } else {
-    Serial.println("⚠️ Wi-Fi disconnected. Reconnecting...");
-    WiFi.reconnect();
+    // Non-blocking Wi-Fi reconnect retry every 15 seconds
+    if (millis() - lastWifiRetry > 15000) {
+      lastWifiRetry = millis();
+      WiFi.reconnect();
+    }
   }
 
   delay(2000);
