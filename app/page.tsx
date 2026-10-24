@@ -4,11 +4,10 @@ import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {Activity, ArrowDown, BarChart3, Bell, Bus, CalendarClock, Calculator, CheckCircle2, Cpu, Crosshair, Download, Droplets, FileSpreadsheet, FlaskConical, GraduationCap, Home, Hospital, LoaderCircle, MapPin, MapPinned, Play, Radio, RefreshCw, Send, ShieldCheck, Square, Wind, X, Zap} from 'lucide-react';
 
 import {Area, AreaChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis} from 'recharts';
-import {API, Air, CANDIDATE_SITES, CandidateSite, WHO_PM25_24H, combinedStageEfficiency, fetchCurrentAir, modelLocally, pmBand} from '../lib/air';
+import {API, Air, CANDIDATE_SITES, CandidateSite, WHO_PM25_24H, combinedStageEfficiency, fetchCurrentAir, modelLocally} from '../lib/air';
 import {RECEPTOR_LABEL, receptorTotal, useExposure} from '../components/exposure';
 import {Forecast} from '../components/forecast';
 import {Planner} from '../components/planner';
-import {ReplayFrame, TwinReplay} from '../components/replay';
 import {Assistant, PlannerState} from '../components/assistant';
 import {Guide, InfoTip} from '../components/info';
 import {MAP_OPTIONS} from '../components/use-leaflet-map';
@@ -108,7 +107,6 @@ function mapOpenAQToSites(observations:OpenAQObservation[]) {
 
 function MossExperience() {
   const [view, setView] = useState<'home'|'twin'|'analysis'|'locations'|'sensors'|'planner'|'forecast'>('home');
-  const [replayFrame, setReplayFrame] = useState<ReplayFrame|null>(null);
   const [dutyHours, setDutyHours] = useState(24);
   const [scheduleSource, setScheduleSource] = useState<string|null>(null);
   const [plannerState, setPlannerState] = useState<PlannerState|null>(null);
@@ -245,15 +243,8 @@ function MossExperience() {
     leafletMaps.current.forEach(map => map?.panTo([site.lat,site.lng],{animate:true,duration:.4}));
   }, [site]);
 
-  useEffect(() => {
-    const colors = replayFrame ? [pmBand(replayFrame.baseline).color, pmBand(replayFrame.withPods).color] : ['#8d6f58', '#16858c'];
-    siteMarkers.current.forEach((marker, index) => marker?.setStyle({fillColor:colors[index]}));
-  }, [replayFrame]);
-
-  useEffect(() => {if (view !== 'twin') setReplayFrame(null)}, [view]);
-
-  const shownBaseline = replayFrame ? replayFrame.baseline : air?.pm25 ?? null;
-  const shownFuture = replayFrame ? replayFrame.withPods : futurePm25;
+  const shownBaseline = air?.pm25 ?? null;
+  const shownFuture = futurePm25;
   const reduction = shownBaseline != null && shownFuture != null && shownBaseline > 0 ? Math.max(0, (1 - shownFuture / shownBaseline) * 100) : null;
 
   return <main className="experience">
@@ -300,12 +291,12 @@ function MossExperience() {
       </div>
       <div className="comparison">
         <article className="map-card baseline-card">
-          <div className="map-heading"><div><span>{replayFrame ? `01 / REPLAY · ${replayFrame.label}` : '01 / PRESENT'}</span><h2>Without moss</h2></div><div className="reading"><small>PM2.5</small><strong>{shownBaseline != null ? shownBaseline.toFixed(1) : '—'}</strong><em>µg/m³</em></div></div>
+          <div className="map-heading"><div><span>01 / PRESENT</span><h2>Without moss</h2></div><div className="reading"><small>PM2.5</small><strong>{shownBaseline != null ? shownBaseline.toFixed(1) : '—'}</strong><em>µg/m³</em></div></div>
           <div className="map-stage"><img className={`map-fallback ${mapBasesReady[0]?'hidden':''}`} src="/bengaluru-map.webp" alt="Street map of Bengaluru"/><div ref={baselineMapNode} className={`map ${mapsReady[0] ? 'ready' : ''}`} aria-label="Interactive baseline map"/><div className="map-label"><Activity size={18}/> BASELINE AIR</div>{mapError&&<div className="map-status">Live tiles unavailable · local Bengaluru map active</div>}<div className="fallback-attribution">© OpenStreetMap contributors</div></div>
           <div className="data-strip gas-strip"><Data label="AIR QUALITY INDEX" value={air ? String(Math.round(air.aqi)) : '—'} detail="US AQI · modeled source"/><Data label="PM10" value={air ? air.pm10.toFixed(1) : '—'} detail="µg/m³"/><Data label="NO₂" value={air ? air.no2.toFixed(1) : '—'} detail="µg/m³"/><Data label="CO" value={air ? air.co.toFixed(0) : '—'} detail="µg/m³ · atmospheric dataset"/><Data label="CO₂" value="SENSOR" detail="Pod NDIR reading required"/></div>
         </article>
         <article className="map-card future-card">
-          <div className="map-heading"><div><span>{replayFrame ? `02 / REPLAY · ${replayFrame.label}` : '02 / FUTURE'}</span><h2>With moss + algae</h2></div><div className="reading future-reading"><small>MODELED PM2.5</small><strong>{shownFuture != null ? shownFuture.toFixed(1) : '—'}</strong><em>µg/m³</em></div></div>
+          <div className="map-heading"><div><span>02 / FUTURE</span><h2>With moss + algae</h2></div><div className="reading future-reading"><small>MODELED PM2.5</small><strong>{shownFuture != null ? shownFuture.toFixed(1) : '—'}</strong><em>µg/m³</em></div></div>
           <div className="map-stage"><img className={`map-fallback ${mapBasesReady[1]?'hidden':''}`} src="/bengaluru-map.webp" alt="Street map of Bengaluru"/><div ref={futureMapNode} className={`map ${mapsReady[1] ? 'ready' : ''}`} aria-label="Interactive future map"/><div className="future-wash"/><div className="map-label"><Wind size={18}/> PROJECTED AIR · SYNCED</div><div className="delta">{reduction != null ? `−${reduction.toFixed(1)}%` : '—'}<small>MODELED CHANGE</small></div>{mapError&&<div className="map-status">Live tiles unavailable · local Bengaluru map active</div>}<div className="fallback-attribution">© OpenStreetMap contributors</div></div>
           <div className="data-strip controls">
             <label>UNITS <strong>{units}</strong><input type="range" min="1" max="100" value={units} onChange={e => setUnits(Number(e.target.value))}/></label>
@@ -315,13 +306,6 @@ function MossExperience() {
           </div>
         </article>
       </div>
-      <Guide title="How to read the digital twin" columns={4} items={[
-        {title:'Left map · PM2.5 now', body:'Fine particles small enough to enter the lungs, at the selected point, from the Open-Meteo air-quality model (a regional estimate, not a street sensor). India’s 24-hour limit is 60 µg/m³; the WHO guideline is 15. Click either map to move the point.'},
-        {title:'Right map · with pods', body:'A box model of a 250,000 m³ pocket of street air, refreshed by 12,000 m³/h of wind, while the pods clean air. The number is the predicted PM2.5 after the chosen horizon: a planning estimate, not a measurement.', formula:'cleaning = units × 500 m³/h × combined efficiency'},
-        {title:'The four sliders', body:'Units: number of pods. Moss and algae efficiency: share of PM2.5 each stage removes per pass (use your measured Sensors value). Horizon: hours the pods run. The stages combine in series, so they never simply add up.', formula:'combined = 1 − (1 − moss) × (1 − algae)'},
-        {title:'Modeled change', body:'How much lower the predicted PM2.5 is than now, in percent. It describes concentration in the modeled air pocket, not an AQI category or a health outcome.', formula:'(now − with pods) ÷ now'},
-      ]}/>
-      <TwinReplay site={site} units={units} mossEfficiency={efficiency} algaeEfficiency={algaeEfficiency} hours={hours} onFrame={setReplayFrame}/>
       <footer className="model-note"><span>MODEL 0.2 / TWO-STAGE</span><p>The future view models moss followed by algae in series. Combined efficiency is 1 − (1 − moss efficiency) × (1 − algae efficiency), preventing double-counting. Both efficiencies require pollutant-specific measurement and field calibration.</p><span>{air?.time ? `DATA ${air.time.replace('T', ' ')}` : 'AWAITING DATA'}</span></footer>
     </section> : view === 'analysis' ? <Analysis air={air} loading={loading} error={error} units={units} setUnits={setUnits} efficiency={efficiency} setEfficiency={setEfficiency} algaeEfficiency={algaeEfficiency} setAlgaeEfficiency={setAlgaeEfficiency} hours={hours} setHours={setHours}/> : view === 'locations' ? <Locations totalUnits={units} setTotalUnits={setUnits} mossEfficiency={efficiency} algaeEfficiency={algaeEfficiency} hours={hours}/> : view === 'planner' ? <Planner mossEfficiency={efficiency} algaeEfficiency={algaeEfficiency} dutyHours={dutyHours} setDutyHours={value => {setDutyHours(value); setScheduleSource(null)}} scheduleSource={scheduleSource} planner={plannerState} onStateChange={setPlannerState}/> : view === 'forecast' ? <Forecast onApplySchedule={(value, label) => {setDutyHours(value); setScheduleSource(label); setView('planner')}}/> : <ChamberSensors mossEfficiency={efficiency} algaeEfficiency={algaeEfficiency} onApplyEfficiency={eff => { setEfficiency(Math.round(eff)); setAlgaeEfficiency(0); setView('twin'); }} />}
 
