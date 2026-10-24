@@ -11,8 +11,8 @@ class FakeDoc:
     def get(self):
         data = self.data
         return type('Snapshot', (), {'exists': data is not None, 'to_dict': lambda _self: dict(data)})()
-    def set(self, data):
-        self.data = data
+    def set(self, data, merge=False):
+        self.data = {**(self.data or {}), **data} if merge else data
 
 class FakeStore:
     def __init__(self):
@@ -67,6 +67,36 @@ class SensorRelayTests(unittest.TestCase):
         main.latest_sensor_reading = None
         main.latest_sensor_received_at = None
         with patch.dict(os.environ, {'FIREBASE_PROJECT_ID': 'demo'}), patch.object(main, 'suggestion_store', return_value=self.store):
+            self.assertFalse(self.client.get('/api/sensors/live').json()['connected'])
+
+class DisconnectTests(unittest.TestCase):
+    def setUp(self):
+        self.client = TestClient(main.app)
+        self.store = FakeStore()
+        main._remote_cache.update(data=None, fetched=0.0)
+
+    def test_usb_board_shows_disconnected_as_soon_as_port_closes(self):
+        main.ingest_sensor_reading(main.SensorReading(**READING))
+        main.scanner_reading_at = main.latest_sensor_received_at
+        main.hardware_serial_state['active'] = True
+        self.assertTrue(self.client.get('/api/sensors/live').json()['connected'])
+        main.hardware_serial_state['active'] = False
+        self.assertFalse(self.client.get('/api/sensors/live').json()['connected'])
+
+    def test_http_bridge_readings_are_not_treated_as_unplugged(self):
+        main.hardware_serial_state['active'] = False
+        main.ingest_sensor_reading(main.SensorReading(**READING))
+        self.assertTrue(self.client.get('/api/sensors/live').json()['connected'])
+
+    def test_relay_disconnect_marks_deployed_feed_disconnected(self):
+        self.store.doc.data = {'latest': {'inlet_ppm': 400.0}, 'history': [], 'issue': None, 'updated_at': time.time() - 2}
+        main.latest_sensor_reading = None
+        main.latest_sensor_received_at = None
+        with patch.dict(os.environ, {'SENSOR_RELAY_KEY': 'secret', 'FIREBASE_PROJECT_ID': 'demo'}), patch.object(main, 'suggestion_store', return_value=self.store):
+            self.assertEqual(self.client.post('/api/sensors/relay/disconnect', headers={'X-Relay-Key': 'wrong'}).status_code, 401)
+            self.assertTrue(self.client.get('/api/sensors/live').json()['connected'])
+            main._remote_cache.update(data=None, fetched=0.0)
+            self.assertEqual(self.client.post('/api/sensors/relay/disconnect', headers={'X-Relay-Key': 'secret'}).status_code, 200)
             self.assertFalse(self.client.get('/api/sensors/live').json()['connected'])
 
 if __name__ == '__main__':

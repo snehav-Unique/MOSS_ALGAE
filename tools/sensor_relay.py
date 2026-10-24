@@ -49,9 +49,11 @@ def main():
     if not args.target or not args.key:
         sys.exit('Set --target (or RELAY_TARGET_URL) and --key (or SENSOR_RELAY_KEY).')
     target = args.target.rstrip('/') + '/api/sensors/relay'
+    disconnect_target = target + '/disconnect'
     print(f'Relaying {args.local} -> {target} every {args.interval:g} s. Ctrl+C to stop.\n')
 
     last_sent = None
+    disconnect_reported_at = 0.0
     while True:
         stamp = time.strftime('%H:%M:%S')
         try:
@@ -59,7 +61,16 @@ def main():
             latest = live.get('latest') or {}
             if live.get('sensor_issue'):
                 print(f'{stamp}  sensor problem: {live["sensor_issue"]}', flush=True)
-            elif not live.get('connected') or latest.get('board_type') == 'simulator' or 'inlet_raw' not in latest:
+            elif not live.get('connected'):
+                # Tell viewers right away (and every 30 s) that the board is unplugged.
+                if time.time() - disconnect_reported_at > 30:
+                    request(disconnect_target, {}, args.key)
+                    disconnect_reported_at = time.time()
+                    print(f'{stamp}  ESP32 disconnected: the deployed app now shows "disconnected"', flush=True)
+                else:
+                    print(f'{stamp}  waiting for the ESP32 to reconnect...', flush=True)
+                last_sent = None
+            elif latest.get('board_type') == 'simulator' or 'inlet_raw' not in latest:
                 print(f'{stamp}  waiting for live ESP32 readings on the local backend...', flush=True)
             elif latest.get('timestamp') != last_sent:
                 payload = {
@@ -74,6 +85,7 @@ def main():
                 print(f"{stamp}  sent: intake {recorded.get('inlet_ppm')} | exhaust {recorded.get('outlet_ppm')} ppm CO2 | "
                       f"{recorded.get('temperature')} °C | {recorded.get('humidity')} %", flush=True)
                 last_sent = latest.get('timestamp')
+                disconnect_reported_at = 0.0
         except urllib.error.HTTPError as e:
             hint = ' (relay key does not match SENSOR_RELAY_KEY on Vercel)' if e.code == 401 else ''
             print(f'{stamp}  deployed app answered HTTP {e.code}{hint}', flush=True)

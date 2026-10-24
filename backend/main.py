@@ -776,6 +776,7 @@ FRESH_AIR_CO2_PPM = 400.0
 RELATIVE_SCALE_MAX = 50.0         # readings above this are already in ppm
 SENSOR_SPIKE_PPM = 100000.0       # anything above this is an electrical spike, not air
 sensor_issue: dict = {"message": None, "at": None}
+scanner_reading_at: Optional[float] = None  # receive time of the latest reading read by the USB scanner
 
 hardware_serial_state = {
     "active": False,
@@ -858,6 +859,8 @@ def serial_auto_scanner_loop():
                                             transport=transport,
                                         )
                                         ingest_sensor_reading(reading)
+                                        global scanner_reading_at
+                                        scanner_reading_at = latest_sensor_received_at
                                 except json.JSONDecodeError:
                                     pass
                 except (serial.SerialException, OSError):
@@ -919,8 +922,19 @@ def relay_sensor_reading(reading: SensorReading, x_relay_key: Optional[str] = He
     if result.get('status') == 'ok':
         history = (history + [result['recorded']])[-REMOTE_HISTORY_LENGTH:]
         state['latest'] = result['recorded']
-    doc.set({'latest': state.get('latest'), 'history': history, 'issue': sensor_issue['message'], 'updated_at': time.time()})
+    doc.set({'latest': state.get('latest'), 'history': history, 'issue': sensor_issue['message'], 'updated_at': time.time(), 'disconnected_at': None})
     return result
+
+
+@app.post('/api/sensors/relay/disconnect')
+def relay_sensor_disconnect(x_relay_key: Optional[str] = Header(default=None)):
+    """Called by the laptop relay when the ESP32 is unplugged, so viewers see it at once."""
+    expected = os.getenv('SENSOR_RELAY_KEY', '').strip()
+    if not expected or not hmac.compare_digest((x_relay_key or '').strip(), expected):
+        raise HTTPException(401, 'Invalid or missing relay key')
+    live_sensor_doc().set({'disconnected_at': time.time()}, merge=True)
+    _remote_cache.update(data=None, fetched=0.0)
+    return {'status': 'ok'}
 
 
 def remote_live_state() -> Optional[dict]:
@@ -941,12 +955,16 @@ def remote_live_state() -> Optional[dict]:
 @app.get('/api/sensors/live')
 def get_live_sensors():
     reading_age_seconds = time.monotonic() - latest_sensor_received_at if latest_sensor_received_at is not None else None
-    connected = reading_age_seconds is not None and reading_age_seconds <= 10.0
+    # A USB/Bluetooth board counts as disconnected the moment its port closes, not 10 s later.
+    unplugged = (not hardware_serial_state['active'] and scanner_reading_at is not None
+                 and scanner_reading_at == latest_sensor_received_at)
+    connected = reading_age_seconds is not None and reading_age_seconds <= 10.0 and not unplugged
     remote = None if connected else remote_live_state()
     if remote and remote.get('latest'):
         age = time.time() - float(remote.get('updated_at') or 0)
+        disconnected_at = remote.get('disconnected_at')
         return {
-            "connected": age <= REMOTE_STALE_SECONDS,
+            "connected": age <= REMOTE_STALE_SECONDS and not (disconnected_at and disconnected_at >= float(remote.get('updated_at') or 0)),
             "hardware": hardware_serial_state,
             "latest": remote['latest'],
             "history": remote.get('history', []),

@@ -678,6 +678,8 @@ function ChamberSensors({mossEfficiency,algaeEfficiency,onApplyEfficiency}:{moss
     return () => clearInterval(tick);
   }, []);
 
+  const deviceDisconnected = !connected && Boolean(live);
+
   const recalibrateGas = async () => {
     setCalibrating(true);
     try {
@@ -987,10 +989,12 @@ function ChamberSensors({mossEfficiency,algaeEfficiency,onApplyEfficiency}:{moss
     {simulationError && <p className="simulation-error">{simulationError}</p>}
 
     <div className="connection-banner">
-      <div className={`connection-badge ${hardware?.active ? 'connected' : connected ? 'connected' : 'waiting'}`}>
+      <div className={`connection-badge ${deviceDisconnected ? 'disconnected' : hardware?.active ? 'connected' : connected ? 'connected' : 'waiting'}`}>
         <span className="live-dot"/>
         <strong>
-          {hardware?.active
+          {deviceDisconnected
+            ? `${live?.board_type === 'arduino' ? 'Arduino' : 'ESP32'} disconnected`
+            : hardware?.active
             ? `${hardware.board_type === 'esp32' ? 'ESP32' : 'Arduino'} connected via ${hardware.transport === 'bluetooth' ? 'Bluetooth' : 'wired USB'}: ${hardware.port}`
             : connected
             ? `${live?.board_type === 'simulator' ? 'Simulation' : live?.board_type === 'esp32' ? 'ESP32' : 'Arduino'} stream active (${live?.transport || 'wired'})`
@@ -998,7 +1002,9 @@ function ChamberSensors({mossEfficiency,algaeEfficiency,onApplyEfficiency}:{moss
         </strong>
         <span>·</span>
         <small>
-          {hardware?.active
+          {deviceDisconnected
+            ? `No readings since ${live?.timestamp ? new Date(live.timestamp).toLocaleTimeString() : '—'}. Check the USB cable or the laptop relay.`
+            : hardware?.active
             ? `${hardware.device_name || 'Serial Board'} @ 115200 baud`
             : hardware?.scanned_ports?.length
             ? `${hardware.scanned_ports.length} serial ports scanned`
@@ -1078,20 +1084,20 @@ function ChamberSensors({mossEfficiency,algaeEfficiency,onApplyEfficiency}:{moss
 
 
     <div className="sensors-kpi-grid">
-      <article className={`sensor-kpi-card inlet-card ${poppedCard === 'inlet' ? 'pop' : ''}`}>
+      <article className={`sensor-kpi-card inlet-card ${poppedCard === 'inlet' ? 'pop' : ''} ${deviceDisconnected ? 'offline' : ''}`}>
         <div className="card-tag"><span>SENSOR 1 · INTAKE (MQ-135) <InfoTip label="About intake reading"><strong>Dirty air going in</strong>MQ-135 #1 at the chamber intake: the baseline the filter works against. It reacts to a mix of gases (ammonia, nitrogen oxides, benzene, smoke, CO₂) and reports an estimated ppm. Needs a 24–48 h warm-up and calibration; changes over time are more reliable than the absolute number.</InfoTip></span><small>MQ-135 #1 · {selectedBoard === 'esp32' ? 'GPIO34' : 'Pin A0'}</small></div>
         <h3>Sensor 1 · Intake</h3>
-        <div className="reading-val">{shownGas.inlet != null ? shownGas.inlet.toFixed(0) : '—'}<small>ppm CO₂</small></div>
-        <small className="pop-next">{live ? (gasTurn.current === 'inlet' ? `next update in ${popCountdown} s` : `next update in ${popCountdown + POP_MS / 1000} s`) : ' '}</small>
-        <Co2Band ppm={shownGas.inlet}/>
+        <div className="reading-val">{deviceDisconnected ? 'Disconnected' : shownGas.inlet != null ? shownGas.inlet.toFixed(0) : '—'}{!deviceDisconnected && <small>ppm CO₂</small>}</div>
+        <small className="pop-next">{deviceDisconnected ? 'Waiting for the ESP32 to reconnect…' : live ? (gasTurn.current === 'inlet' ? `next update in ${popCountdown} s` : `next update in ${popCountdown + POP_MS / 1000} s`) : ' '}</small>
+        {deviceDisconnected ? <span className="co2-band" style={{background:'#8c948a'}}>Disconnected</span> : <Co2Band ppm={shownGas.inlet}/>}
       </article>
 
-      <article className={`sensor-kpi-card outlet-card ${poppedCard === 'outlet' ? 'pop' : ''}`}>
+      <article className={`sensor-kpi-card outlet-card ${poppedCard === 'outlet' ? 'pop' : ''} ${deviceDisconnected ? 'offline' : ''}`}>
         <div className="card-tag"><span>SENSOR 2 · EXHAUST (MQ-135) <InfoTip label="About exhaust reading"><strong>Cleaned air coming out</strong>MQ-135 #2 at the exhaust, after both biological stages. Same sensor type as the intake, so the two are directly comparable. Lower than the intake means pollutants are being captured inside the chamber.</InfoTip></span><small>MQ-135 #2 · {selectedBoard === 'esp32' ? 'GPIO35' : 'Pin A1'}</small></div>
         <h3>Sensor 2 · Exhaust</h3>
-        <div className="reading-val">{shownGas.outlet != null ? shownGas.outlet.toFixed(0) : '—'}<small>ppm CO₂</small></div>
-        <small className="pop-next">{live ? (gasTurn.current === 'outlet' ? `next update in ${popCountdown} s` : `next update in ${popCountdown + POP_MS / 1000} s`) : ' '}</small>
-        <Co2Band ppm={shownGas.outlet}/>
+        <div className="reading-val">{deviceDisconnected ? 'Disconnected' : shownGas.outlet != null ? shownGas.outlet.toFixed(0) : '—'}{!deviceDisconnected && <small>ppm CO₂</small>}</div>
+        <small className="pop-next">{deviceDisconnected ? 'Waiting for the ESP32 to reconnect…' : live ? (gasTurn.current === 'outlet' ? `next update in ${popCountdown} s` : `next update in ${popCountdown + POP_MS / 1000} s`) : ' '}</small>
+        {deviceDisconnected ? <span className="co2-band" style={{background:'#8c948a'}}>Disconnected</span> : <Co2Band ppm={shownGas.outlet}/>}
       </article>
 
       <article className="sensor-kpi-card highlight">
