@@ -74,7 +74,7 @@ export function Hotspots() {
   return <section className="feature-view hotspots-view">
     <header className="feature-header"><div><p className="kicker">HOTSPOTS / MEASURED CITY NETWORK</p><h1>Where is the air worst right now?</h1><p>Every regulatory and low-cost PM2.5 station within 25 km of central Bengaluru, checked for freshness and outliers before it can count as a hotspot.</p></div><button className="feature-button" onClick={refresh} disabled={loading}>{loading ? <LoaderCircle className="spin" size={16}/> : <RefreshCw size={16}/>}{loading ? 'Reading stations…' : 'Refresh'}</button></header>
 
-    {mode === 'modeled' && <div className="feature-notice"><AlertTriangle size={18}/><p><strong>Showing modeled values, not measurements.</strong> {notice} Set <code>OPENAQ_API_KEY</code> on the API service to load measured stations. Open-Meteo uses a coarse model grid, so nearby areas often share one value.</p></div>}
+
 
     <div className="hotspot-counts">
       <div className="count-hotspot"><span>ABOVE NAAQS ({NAAQS_PM25_24H} µg/m³) <InfoTip label="About hotspots"><strong>Hotspots</strong>Verified readings above India’s 24-hour PM2.5 limit of 60 µg/m³. These are the priority places for pods.</InfoTip></span><strong>{counts.hotspot}</strong></div>

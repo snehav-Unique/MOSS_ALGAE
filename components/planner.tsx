@@ -19,14 +19,14 @@ const WEIGHT_HELP = [
 
 // Planning assumptions per area. Editable in the table; replace with site-survey data before real use.
 const SITE_ASSUMPTIONS:Record<string,{setup:number; feasibility:number; equity:number}> = {
-  'peenya':{setup:40000, feasibility:.7, equity:.9},
-  'yeshwanthpur':{setup:35000, feasibility:.7, equity:.6},
-  'majestic':{setup:60000, feasibility:.5, equity:.7},
-  'hebbal':{setup:45000, feasibility:.6, equity:.5},
-  'kr-puram':{setup:35000, feasibility:.7, equity:.8},
-  'whitefield':{setup:30000, feasibility:.8, equity:.4},
-  'silk-board':{setup:55000, feasibility:.5, equity:.6},
-  'jayanagar':{setup:25000, feasibility:.9, equity:.4},
+  'peenya':{setup:4000, feasibility:.7, equity:.9},
+  'yeshwanthpur':{setup:3500, feasibility:.7, equity:.6},
+  'majestic':{setup:6000, feasibility:.5, equity:.7},
+  'hebbal':{setup:4500, feasibility:.6, equity:.5},
+  'kr-puram':{setup:3500, feasibility:.7, equity:.8},
+  'whitefield':{setup:3000, feasibility:.8, equity:.4},
+  'silk-board':{setup:5500, feasibility:.5, equity:.6},
+  'jayanagar':{setup:2500, feasibility:.9, equity:.4},
 };
 
 type Candidate = {id:string; cost:number; scores:number[]};
@@ -63,14 +63,14 @@ export function Planner({mossEfficiency, algaeEfficiency, dutyHours, setDutyHour
   const {data:exposure, mode:exposureMode} = useExposure();
   const [assumptions, setAssumptions] = useState(SITE_ASSUMPTIONS);
   const [budgetLakh, setBudgetLakh] = useState(10);
-  const [podCost, setPodCost] = useState(40000);
+  const [podCost, setPodCost] = useState(4000);
   const [podsPerSite, setPodsPerSite] = useState(4);
   const [weights, setWeights] = useState([25, 35, 20, 20]);
   const [result, setResult] = useState<OptimizeResult|null>(null);
   const [solver, setSolver] = useState<'api'|'local'|null>(null);
   const [fanWatts, setFanWatts] = useState(40);
   const [tariff, setTariff] = useState(8);
-  const [maintenance, setMaintenance] = useState(5000);
+  const [maintenance, setMaintenance] = useState(500);
   const [years, setYears] = useState(10);
   const [discount, setDiscount] = useState(8);
   const [lifecycleCost, setLifecycleCost] = useState<number|null>(null);
