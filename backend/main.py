@@ -513,6 +513,7 @@ class SensorReading(BaseModel):
     humidity: Optional[float] = Field(default=None, description="Chamber relative humidity % (DHT22)")
     device_id: str = Field(default="robocraze_chamber_01", description="Microcontroller or station ID")
     board_type: Literal["arduino", "esp32", "simulator"] = "arduino"
+    calibrated: bool = Field(default=False, description="True when inlet/outlet are already calibrated ppm CO2 (e.g. relayed)")
     transport: Literal["wired", "wifi", "bluetooth", "simulation"] = "wired"
 
     @model_validator(mode="after")
@@ -656,10 +657,31 @@ async def test_telegram_alert():
     return {"status": "ok", "message": "Telegram test alert sent successfully!"}
 
 
-def to_co2_ppm(value: float) -> float:
-    """MQ-135 sketches report gas relative to the air at board start-up (start-up air = 3.36).
-    Treating start-up air as fresh air (~400 ppm CO2) gives CO2-equivalent ppm; values already in ppm pass through."""
-    return value * FRESH_AIR_CO2_PPM / STARTUP_RELATIVE_READING if value < RELATIVE_SCALE_MAX else value
+# Software fresh-air calibration: the MQ-135 sketches only report gas relative to their own start-up air,
+# so each sensor's average over the first readings after (re)calibration is taken as fresh air (400 ppm CO2).
+CALIBRATION_SAMPLES = 5
+gas_calibration: dict = {'inlet': None, 'outlet': None, 'samples': [], 'at': None}
+
+
+def calibrate_gas(raw1: float, raw2: float) -> Optional[tuple]:
+    """CO2-equivalent ppm for both sensors, or None while the fresh-air reference is still being collected."""
+    if gas_calibration['inlet'] is None:
+        gas_calibration['samples'].append((raw1, raw2))
+        if len(gas_calibration['samples']) < CALIBRATION_SAMPLES:
+            return None
+        n = len(gas_calibration['samples'])
+        gas_calibration.update(inlet=sum(a for a, _ in gas_calibration['samples']) / n,
+                               outlet=sum(b for _, b in gas_calibration['samples']) / n,
+                               samples=[], at=datetime.now(timezone.utc).isoformat())
+    return (round(raw1 * FRESH_AIR_CO2_PPM / gas_calibration['inlet'], 1),
+            round(raw2 * FRESH_AIR_CO2_PPM / gas_calibration['outlet'], 1))
+
+
+@app.post('/api/sensors/calibrate')
+def recalibrate_sensors():
+    """Take the current air as fresh air (400 ppm) for both gas sensors over the next readings."""
+    gas_calibration.update(inlet=None, outlet=None, samples=[], at=None)
+    return {'status': 'calibrating', 'samples_needed': CALIBRATION_SAMPLES}
 
 
 @app.post('/api/sensors/reading')
@@ -671,8 +693,7 @@ def ingest_sensor_reading(reading: SensorReading):
     if reading.board_type == "simulator":
         pre_filter, post_filter = raw1, raw2
     else:
-        pre_filter, post_filter = round(to_co2_ppm(raw1), 1), round(to_co2_ppm(raw2), 1)
-        if max(pre_filter, post_filter) > SENSOR_SPIKE_PPM:
+        if max(raw1, raw2) > SENSOR_SPIKE_PPM:
             sensor_issue.update(message="Electrical spike on a gas sensor (signal jumped to maximum). Check the MQ-135 AOUT/VCC/GND wires.",
                                 at=datetime.now(timezone.utc).isoformat())
             return {"status": "ignored", "reason": "sensor spike"}
@@ -681,6 +702,15 @@ def ingest_sensor_reading(reading: SensorReading):
                                         "In fresh air, wait 2-3 minutes, then press EN on the ESP32.",
                                 at=datetime.now(timezone.utc).isoformat())
             return {"status": "ignored", "reason": "zero reference"}
+        if reading.calibrated or min(raw1, raw2) >= RELATIVE_SCALE_MAX:
+            pre_filter, post_filter = raw1, raw2  # already ppm CO2 (relayed or calibrated firmware)
+        else:
+            calibrated = calibrate_gas(raw1, raw2)
+            if calibrated is None:
+                sensor_issue.update(message=f"Calibrating gas sensors to the current air as 400 ppm ({len(gas_calibration['samples'])}/{CALIBRATION_SAMPLES})...",
+                                    at=datetime.now(timezone.utc).isoformat())
+                return {"status": "ignored", "reason": "calibrating"}
+            pre_filter, post_filter = calibrated
         sensor_issue.update(message=None, at=None)
 
     # Measured single-pass efficiency %: (intake - exhaust) / intake * 100
@@ -706,6 +736,7 @@ def ingest_sensor_reading(reading: SensorReading):
         "health": health,
         "inlet_raw": raw1,
         "outlet_raw": raw2,
+        "calibrated_at": gas_calibration['at'] if reading.board_type != "simulator" and not reading.calibrated else None,
     }
 
     latest_sensor_reading = data
@@ -734,7 +765,6 @@ def ingest_sensor_reading(reading: SensorReading):
 
 
 FRESH_AIR_CO2_PPM = 400.0
-STARTUP_RELATIVE_READING = 3.36   # what the MQ-135 sketches report for start-up air
 RELATIVE_SCALE_MAX = 50.0         # readings above this are already in ppm
 SENSOR_SPIKE_PPM = 100000.0       # anything above this is an electrical spike, not air
 sensor_issue: dict = {"message": None, "at": None}

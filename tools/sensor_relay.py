@@ -63,7 +63,8 @@ def main():
                 print(f'{stamp}  waiting for live ESP32 readings on the local backend...', flush=True)
             elif latest.get('timestamp') != last_sent:
                 payload = {
-                    'inlet_ppm': latest['inlet_raw'], 'outlet_ppm': latest['outlet_raw'],
+                    # Already calibrated ppm CO2 on this laptop; the deployed app stores them unchanged.
+                    'inlet_ppm': latest['inlet_ppm'], 'outlet_ppm': latest['outlet_ppm'], 'calibrated': True,
                     'temperature': latest.get('temperature'), 'humidity': latest.get('humidity'),
                     'device_id': latest.get('device_id') or 'esp32', 'board_type': latest.get('board_type', 'esp32'),
                     'transport': latest.get('transport', 'wired'),

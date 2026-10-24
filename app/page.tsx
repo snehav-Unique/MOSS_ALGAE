@@ -546,6 +546,7 @@ type SensorTelemetry = {
   board_type: 'arduino' | 'esp32' | 'simulator';
   transport: 'wired' | 'wifi' | 'bluetooth' | 'simulation';
   timestamp: string;
+  calibrated_at?: string | null;
   health: {
     moss_status: string;
     moss_alert: string | null;
@@ -606,6 +607,7 @@ function ChamberSensors({mossEfficiency,algaeEfficiency,onApplyEfficiency}:{moss
   const [history, setHistory] = useState<SensorTelemetry[]>([]);
   const [connected, setConnected] = useState(false);
   const [sensorIssue, setSensorIssue] = useState<string|null>(null);
+  const [calibrating, setCalibrating] = useState(false);
   // Intake and exhaust cards take turns updating every POP_MS (averaging the readings in between) so numbers stay readable.
   const POP_MS = 5000;
   const [shownGas, setShownGas] = useState<{inlet:number|null; outlet:number|null}>({inlet:null, outlet:null});
@@ -675,6 +677,18 @@ function ChamberSensors({mossEfficiency,algaeEfficiency,onApplyEfficiency}:{moss
     }, 250);
     return () => clearInterval(tick);
   }, []);
+
+  const recalibrateGas = async () => {
+    setCalibrating(true);
+    try {
+      await fetch(`${API}/api/sensors/calibrate`, {method: 'POST'});
+      // Start the cards fresh on the new scale instead of averaging old and new values.
+      gasBuffers.current = {inlet: [], outlet: []};
+      setShownGas({inlet: null, outlet: null});
+    } finally {
+      setTimeout(() => setCalibrating(false), 10000);
+    }
+  };
 
   const fetchLive = useCallback(async () => {
     setRefreshing(true);
@@ -1115,7 +1129,18 @@ function ChamberSensors({mossEfficiency,algaeEfficiency,onApplyEfficiency}:{moss
 
 
     {sensorIssue && (
-      <div className="chamber-alert-box" role="alert"><strong>Sensor problem:</strong> {sensorIssue}</div>
+      <div className="chamber-alert-box" role="status"><strong>Sensor status:</strong> {sensorIssue}</div>
+    )}
+
+    {(hardware?.active || live?.calibrated_at) && (
+      <div className="calibration-bar">
+        <span>{live?.calibrated_at
+          ? `Gas sensors calibrated to fresh air (400 ppm CO₂) at ${new Date(live.calibrated_at).toLocaleTimeString()}. Recalibrate whenever the air around the sensors is clean.`
+          : 'Gas sensors are calibrating to the current air as 400 ppm CO₂.'}</span>
+        {hardware?.active && <button className="sensor-btn secondary" onClick={recalibrateGas} disabled={calibrating}
+          title="Takes the current air as fresh air (400 ppm) for both gas sensors over the next ~10 seconds">
+          {calibrating ? 'Calibrating…' : 'Calibrate to fresh air'}</button>}
+      </div>
     )}
 
     {(live?.health?.moss_alert || live?.health?.algae_alert) && (

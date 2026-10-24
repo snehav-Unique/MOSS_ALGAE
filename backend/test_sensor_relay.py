@@ -22,7 +22,7 @@ class FakeStore:
     def document(self, _name):
         return self.doc
 
-READING = {'inlet_ppm': 3.36, 'outlet_ppm': 2.52, 'temperature': 25.0, 'humidity': 80.0, 'board_type': 'esp32', 'transport': 'wired', 'device_id': 'esp32_wired'}
+READING = {'inlet_ppm': 400.0, 'outlet_ppm': 300.0, 'calibrated': True, 'temperature': 25.0, 'humidity': 80.0, 'board_type': 'esp32', 'transport': 'wired', 'device_id': 'esp32_wired'}
 
 class SensorRelayTests(unittest.TestCase):
     def setUp(self):
