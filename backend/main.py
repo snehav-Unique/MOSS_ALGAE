@@ -849,6 +849,20 @@ REMOTE_STALE_SECONDS = 20.0
 _remote_cache: dict = {'data': None, 'fetched': 0.0}
 
 
+@app.get('/api/firebase/status')
+def firebase_status():
+    """Which Firebase settings this deployment can see (presence only, never values)."""
+    key = os.getenv('FIREBASE_PRIVATE_KEY', '')
+    return {
+        'FIREBASE_PROJECT_ID': bool(os.getenv('FIREBASE_PROJECT_ID', '').strip()),
+        'FIREBASE_CLIENT_EMAIL': bool(os.getenv('FIREBASE_CLIENT_EMAIL', '').strip()),
+        'FIREBASE_PRIVATE_KEY': bool(key.strip()),
+        'private_key_format_ok': 'BEGIN PRIVATE KEY' in key and 'END PRIVATE KEY' in key,
+        'SENSOR_RELAY_KEY': bool(os.getenv('SENSOR_RELAY_KEY', '').strip()),
+        'deployment': os.getenv('VERCEL_ENV', 'local'),
+    }
+
+
 def live_sensor_doc():
     return suggestion_store().collection(LIVE_SENSOR_COLLECTION).document(LIVE_SENSOR_DOCUMENT)
 
