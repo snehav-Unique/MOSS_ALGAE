@@ -655,16 +655,18 @@ function ChamberSensors({mossEfficiency,algaeEfficiency,onApplyEfficiency}:{moss
       const next = nextGasAt.current;
       const show = (card:'inlet'|'outlet') => {
         const values = buffers[card];
-        if (!values.length) return;
+        if (!values.length) return false;
         const average = values.reduce((a, b) => a + b, 0) / values.length;
         buffers[card] = [];
         setShownGas(current => ({...current, [card]: average}));
         setPoppedCard(card);
         setTimeout(() => setPoppedCard(null), 900);
+        return true;
       };
       if (!next.inlet) next.inlet = now;
-      if (now >= next.inlet) {
-        show('inlet');
+      // Intake waits for an actual new reading; the exhaust is only scheduled after the intake has updated,
+      // so the order is always intake first, exhaust OUTLET_LAG_MS later.
+      if (now >= next.inlet && !next.outlet && show('inlet')) {
         next.outlet = now + OUTLET_LAG_MS;
         next.inlet = now + INLET_EVERY_MS;
       }
