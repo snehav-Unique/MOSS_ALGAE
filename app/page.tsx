@@ -920,22 +920,7 @@ function ChamberSensors({mossEfficiency,algaeEfficiency,onApplyEfficiency}:{moss
       </div>
     </div>
 
-    <div className="model-simulation-panel" aria-label="Deterministic simulation inputs">
-      <div className="simulation-heading">
-        <span>ONE-CLICK LIVE SIMULATION</span>
-        <strong>Autonomous smooth model</strong>
-        <small>Press Run Live Simulation—the modeled inlet, microclimate, and chamber response advance automatically without manual values.</small>
-      </div>
-      <div className="simulation-preset"><span>INLET PROFILE</span><strong>Urban cycle</strong><small>Smooth periodic concentration</small></div>
-      <div className="simulation-preset"><span>CHAMBER</span><strong>1.0 m³</strong><small>Residence time V/Q</small></div>
-      <div className="simulation-preset"><span>MICROCLIMATE</span><strong>Automatic</strong><small>Temperature + humidity</small></div>
-      <div className="simulation-equation">
-        <span>CURRENT MODEL INPUTS</span>
-        <strong>Measured chamber {mossEfficiency}% → Additional algae {algaeEfficiency}%</strong>
-        <small>Combined η = {(combinedStageEfficiency(mossEfficiency / 100, algaeEfficiency / 100) * 100).toFixed(1)}% · Q = {airflow} m³/h · deterministic</small>
-      </div>
-      {simulationError && <p className="simulation-error">{simulationError}</p>}
-    </div>
+    {simulationError && <p className="simulation-error">{simulationError}</p>}
 
     <div className="connection-banner">
       <div className={`connection-badge ${hardware?.active ? 'connected' : connected ? 'connected' : 'waiting'}`}>
