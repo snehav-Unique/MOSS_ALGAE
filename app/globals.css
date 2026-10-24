@@ -377,3 +377,9 @@ h1 .info-tip{width:24px;height:24px;font-size:14px;vertical-align:.35em}
 .location-row{grid-template-columns:2fr 1.3fr .8fr .8fr .9fr .55fr 1fr;gap:12px;min-width:1050px}
 .location-row>span:nth-child(2){display:flex;flex-direction:column;gap:3px}
 
+
+/* Sensors tab: intake / exhaust cards take turns updating with a short glow */
+.sensor-kpi-card{transition:box-shadow .45s ease,transform .45s ease}
+.sensor-kpi-card.pop{box-shadow:0 0 0 3px #22c55e99,0 10px 26px #16858c33;transform:translateY(-3px)}
+.sensor-kpi-card .pop-next{font-size:.8rem;color:#7a8677}
+@media(prefers-reduced-motion:reduce){.sensor-kpi-card{transition:none}.sensor-kpi-card.pop{transform:none}}

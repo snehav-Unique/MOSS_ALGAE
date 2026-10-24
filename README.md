@@ -25,6 +25,16 @@ In development `npm run dev` proxies `/api` to `BACKEND_URL` (default `http://12
 - **Citizen page** — `/citizen` is a mobile page in English, ಕನ್ನಡ and हिंदी: PM2.5 near you, advice by group, cleanest 2-hour window, nearest proposed pod area, and a "suggest a pod location" form stored in Firebase Firestore.
 - **Owner feedback** — a standalone owner console on port `3001` reads citizen suggestions only after the backend validates `OWNER_DASHBOARD_KEY`; feedback is not exposed on the public Planner.
 
+### Live ESP32 readings on the deployed site
+
+The laptop wired to the ESP32 runs the local backend (it reads USB) plus a relay that forwards each real reading to the deployed API; the API stores the latest readings in Firestore (`live_sensors/chamber`) so every viewer's Sensors tab updates live.
+
+1. On Vercel set `SENSOR_RELAY_KEY` (a long random secret) next to the existing Firebase variables, and redeploy.
+2. On the laptop put the same `SENSOR_RELAY_KEY` and `RELAY_TARGET_URL=https://<your-app>.vercel.app` in `.env`.
+3. Run the local backend (`python -m uvicorn backend.main:app --port 8000`) and `python tools/sensor_relay.py`.
+
+Gas readings are shown as CO₂-equivalent ppm (start-up air = 400 ppm). The relay sends every 5 s to stay inside Firestore's free write quota.
+
 ### Firebase suggestion storage
 
 1. Create a Firebase project with a Firestore database and service account.

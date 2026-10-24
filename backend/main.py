@@ -656,44 +656,39 @@ async def test_telegram_alert():
     return {"status": "ok", "message": "Telegram test alert sent successfully!"}
 
 
+def to_co2_ppm(value: float) -> float:
+    """MQ-135 sketches report gas relative to the air at board start-up (start-up air = 3.36).
+    Treating start-up air as fresh air (~400 ppm CO2) gives CO2-equivalent ppm; values already in ppm pass through."""
+    return value * FRESH_AIR_CO2_PPM / STARTUP_RELATIVE_READING if value < RELATIVE_SCALE_MAX else value
+
+
 @app.post('/api/sensors/reading')
 def ingest_sensor_reading(reading: SensorReading):
     global latest_sensor_reading, latest_sensor_received_at
-    # Whichever sensor shows more is Pre-Filter (inlet), whichever shows less is Post-Filter (outlet)
     raw1 = round(reading.inlet_ppm, 2)
     raw2 = round(reading.outlet_ppm, 2)
-    pre_filter = max(raw1, raw2)
-    post_filter = min(raw1, raw2)
-
-    # Calibrate uncalibrated/floating hardware ADC readings into realistic operating PPM ranges:
-    # Pre-filter (dirty intake baseline): 500 - 600 ppm
-    # Post-filter (purified biofilter exhaust): 250 - 300 ppm (~45-55% removal efficiency)
-    if pre_filter > 1000.0 or pre_filter < 50.0 or post_filter > 800.0:
-        ratio = max(0.20, min(0.65, (pre_filter - post_filter) / pre_filter)) if pre_filter > 0 and post_filter < pre_filter else 0.50
-        # Realistic natural micro-variation:
-        jitter = math.sin(time.time() * 0.7) * 18.0
-        pre_filter = round(550.0 + jitter, 1) # ~532 - 568 ppm (within 500-600)
-        post_target = pre_filter * (1.0 - ratio)
-        post_filter = round(max(250.0, min(300.0, post_target)), 1) # within 250-300
-
-    # Calculate measured single-pass efficiency %: (pre_filter - post_filter) / pre_filter * 100
-    if pre_filter > 0:
-        eff = max(0.0, min(95.0, (pre_filter - post_filter) / pre_filter * 100.0))
+    # Physical sensors are shown as measured: sensor 1 (GPIO34) is the intake, sensor 2 (GPIO35) the exhaust.
+    if reading.board_type == "simulator":
+        pre_filter, post_filter = raw1, raw2
     else:
-        eff = 0.0
+        pre_filter, post_filter = round(to_co2_ppm(raw1), 1), round(to_co2_ppm(raw2), 1)
+        if max(pre_filter, post_filter) > SENSOR_SPIKE_PPM:
+            sensor_issue.update(message="Electrical spike on a gas sensor (signal jumped to maximum). Check the MQ-135 AOUT/VCC/GND wires.",
+                                at=datetime.now(timezone.utc).isoformat())
+            return {"status": "ignored", "reason": "sensor spike"}
+        if raw1 == 0 and raw2 == 0:
+            sensor_issue.update(message="Both gas sensors read 0: the board restarted while the air or wiring was unstable and saved a wrong reference. "
+                                        "In fresh air, wait 2-3 minutes, then press EN on the ESP32.",
+                                at=datetime.now(timezone.utc).isoformat())
+            return {"status": "ignored", "reason": "zero reference"}
+        sensor_issue.update(message=None, at=None)
 
-    # Temperature and humidity fallback if sensor is unplugged or uncalibrated (DHT22 reading null):
-    temp = reading.temperature
-    hum = reading.humidity
-    if temp is None or temp <= 0 or temp > 80.0:
-        temp = round(28.0 + 0.3 * math.sin(time.time() * 0.4), 1)  # ~28°C
-    else:
-        temp = round(temp, 1)
+    # Measured single-pass efficiency %: (intake - exhaust) / intake * 100
+    eff = max(0.0, min(100.0, (pre_filter - post_filter) / pre_filter * 100.0)) if pre_filter > 0 else 0.0
 
-    if hum is None or hum <= 0 or hum > 100.0:
-        hum = round(64.5 + 0.6 * math.cos(time.time() * 0.4), 1)   # ~64.5% RH
-    else:
-        hum = round(hum, 1)
+    # DHT22 values are shown only when valid; a missing reading stays missing.
+    temp = round(reading.temperature, 1) if reading.temperature is not None and -20.0 < reading.temperature < 80.0 else None
+    hum = round(reading.humidity, 1) if reading.humidity is not None and 0.0 < reading.humidity <= 100.0 else None
 
     timestamp = datetime.now(timezone.utc).isoformat()
     health = evaluate_chamber_health(temp, hum)
@@ -708,7 +703,9 @@ def ingest_sensor_reading(reading: SensorReading):
         "board_type": reading.board_type,
         "transport": reading.transport,
         "timestamp": timestamp,
-        "health": health
+        "health": health,
+        "inlet_raw": raw1,
+        "outlet_raw": raw2,
     }
 
     latest_sensor_reading = data
@@ -735,6 +732,12 @@ def ingest_sensor_reading(reading: SensorReading):
 
     return {"status": "ok", "recorded": data}
 
+
+FRESH_AIR_CO2_PPM = 400.0
+STARTUP_RELATIVE_READING = 3.36   # what the MQ-135 sketches report for start-up air
+RELATIVE_SCALE_MAX = 50.0         # readings above this are already in ppm
+SENSOR_SPIKE_PPM = 100000.0       # anything above this is an electrical spike, not air
+sensor_issue: dict = {"message": None, "at": None}
 
 hardware_serial_state = {
     "active": False,
@@ -776,11 +779,17 @@ def serial_auto_scanner_loop():
             if candidate_port:
                 hardware_serial_state["device_name"] = candidate_desc
                 try:
-                    with serial.Serial(candidate_port, 115200, timeout=2.5) as ser:
+                    ser = serial.Serial()
+                    ser.port, ser.baudrate, ser.timeout = candidate_port, 115200, 2.5
+                    # Keep DTR/RTS low so opening the port does not reset the ESP32 (a reset re-zeroes the MQ-135 reference).
+                    ser.dtr = False
+                    ser.rts = False
+                    ser.open()
+                    with ser:
                         hardware_serial_state["active"] = True
                         hardware_serial_state["port"] = candidate_port
-                        print(f"🌿 [AUTO-SERIAL] Physical Arduino connected on {candidate_port} ({candidate_desc})")
-                        time.sleep(1.8) # Wait for Arduino board reset
+                        # Plain ASCII: on Windows an emoji here raises UnicodeEncodeError when output is redirected, killing the reader.
+                        print(f"[AUTO-SERIAL] Physical board connected on {candidate_port} ({candidate_desc})", flush=True)
                         while True:
                             line = ser.readline().decode('utf-8', errors='ignore').strip()
                             if not line:
@@ -832,10 +841,69 @@ def serial_auto_scanner_loop():
 # Start auto-detector daemon thread immediately
 threading.Thread(target=serial_auto_scanner_loop, daemon=True).start()
 
+# --- REMOTE LIVE SENSORS: laptop relay -> deployed API -> Firestore -> every viewer ---
+# Serverless instances share no memory, so the deployed app keeps the latest readings in one Firestore document.
+LIVE_SENSOR_COLLECTION, LIVE_SENSOR_DOCUMENT = 'live_sensors', 'chamber'
+REMOTE_HISTORY_LENGTH = 40
+REMOTE_STALE_SECONDS = 20.0
+_remote_cache: dict = {'data': None, 'fetched': 0.0}
+
+
+def live_sensor_doc():
+    return suggestion_store().collection(LIVE_SENSOR_COLLECTION).document(LIVE_SENSOR_DOCUMENT)
+
+
+@app.post('/api/sensors/relay')
+def relay_sensor_reading(reading: SensorReading, x_relay_key: Optional[str] = Header(default=None)):
+    """Accepts readings forwarded from the laptop connected to the ESP32 and publishes them to Firestore."""
+    expected = os.getenv('SENSOR_RELAY_KEY', '').strip()
+    if not expected or not hmac.compare_digest((x_relay_key or '').strip(), expected):
+        raise HTTPException(401, 'Invalid or missing relay key')
+    result = ingest_sensor_reading(reading)
+    doc = live_sensor_doc()
+    previous = doc.get()
+    state = previous.to_dict() if previous.exists else {}
+    history = state.get('history', [])
+    if result.get('status') == 'ok':
+        history = (history + [result['recorded']])[-REMOTE_HISTORY_LENGTH:]
+        state['latest'] = result['recorded']
+    doc.set({'latest': state.get('latest'), 'history': history, 'issue': sensor_issue['message'], 'updated_at': time.time()})
+    return result
+
+
+def remote_live_state() -> Optional[dict]:
+    """Latest relayed readings from Firestore (deployed app only), cached for 2 s per instance."""
+    if not os.getenv('FIREBASE_PROJECT_ID'):
+        return None
+    if time.time() - _remote_cache['fetched'] < 2.0:
+        return _remote_cache['data']
+    try:
+        snapshot = live_sensor_doc().get()
+        data = snapshot.to_dict() if snapshot.exists else None
+    except Exception:  # Firestore unavailable: behave as if nothing was relayed.
+        data = None
+    _remote_cache.update(data=data, fetched=time.time())
+    return data
+
+
 @app.get('/api/sensors/live')
 def get_live_sensors():
     reading_age_seconds = time.monotonic() - latest_sensor_received_at if latest_sensor_received_at is not None else None
     connected = reading_age_seconds is not None and reading_age_seconds <= 10.0
+    remote = None if connected else remote_live_state()
+    if remote and remote.get('latest'):
+        age = time.time() - float(remote.get('updated_at') or 0)
+        return {
+            "connected": age <= REMOTE_STALE_SECONDS,
+            "hardware": hardware_serial_state,
+            "latest": remote['latest'],
+            "history": remote.get('history', []),
+            "history_count": len(remote.get('history', [])),
+            "reading_age_seconds": round(age, 1),
+            "sensor_issue": remote.get('issue'),
+            "capabilities": DEVICE_CAPABILITIES,
+            "source": "relay",
+        }
     return {
         "connected": connected,
         "hardware": hardware_serial_state,
@@ -843,6 +911,7 @@ def get_live_sensors():
         "history": sensor_telemetry_history,
         "history_count": len(sensor_telemetry_history),
         "reading_age_seconds": round(reading_age_seconds, 1) if reading_age_seconds is not None else None,
+        "sensor_issue": sensor_issue["message"],
         "capabilities": DEVICE_CAPABILITIES,
     }
 
