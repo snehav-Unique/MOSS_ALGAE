@@ -660,6 +660,8 @@ async def test_telegram_alert():
 # Software fresh-air calibration: the MQ-135 sketches only report gas relative to their own start-up air,
 # so each sensor's average over the first readings after (re)calibration is taken as fresh air (400 ppm CO2).
 CALIBRATION_SAMPLES = 5
+BASELINE_FLOOR_PPM = 380.0   # below this the reference has drifted, not the air
+BASELINE_ADAPT_RATE = 0.3    # share of the gap closed per reading (~5 readings to settle)
 gas_calibration: dict = {'inlet': None, 'outlet': None, 'samples': [], 'at': None}
 
 
@@ -673,6 +675,12 @@ def calibrate_gas(raw1: float, raw2: float) -> Optional[tuple]:
         gas_calibration.update(inlet=sum(a for a, _ in gas_calibration['samples']) / n,
                                outlet=sum(b for _, b in gas_calibration['samples']) / n,
                                samples=[], at=datetime.now(timezone.utc).isoformat())
+    # Automatic baseline correction: air cannot hold less CO2 than fresh outdoor air, so a reading below
+    # BASELINE_FLOOR_PPM means the sensor drifted (MQ-135 heaters settle for hours); ease that reference
+    # toward the current signal instead of reporting impossible values.
+    for key, raw in (('inlet', raw1), ('outlet', raw2)):
+        if raw > 0 and raw * FRESH_AIR_CO2_PPM / gas_calibration[key] < BASELINE_FLOOR_PPM:
+            gas_calibration[key] = gas_calibration[key] * (1 - BASELINE_ADAPT_RATE) + raw * BASELINE_ADAPT_RATE
     return (round(raw1 * FRESH_AIR_CO2_PPM / gas_calibration['inlet'], 1),
             round(raw2 * FRESH_AIR_CO2_PPM / gas_calibration['outlet'], 1))
 

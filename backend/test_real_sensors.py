@@ -31,6 +31,17 @@ class RealSensorReadingTests(unittest.TestCase):
         self.assertAlmostEqual(data['efficiency'], 26.67, places=2)
         self.assertEqual((data['inlet_raw'], data['outlet_raw']), (0.9, 0.55))
 
+    def test_downward_drift_is_corrected_back_toward_fresh_air(self):
+        self.calibrate(inlet=0.45, outlet=0.42)
+        first = post(self.client, inlet_ppm=0.30, outlet_ppm=0.28)['recorded']
+        self.assertLess(first['inlet_ppm'], 380)
+        for _ in range(8):
+            settled = post(self.client, inlet_ppm=0.30, outlet_ppm=0.28)['recorded']
+        self.assertGreaterEqual(settled['inlet_ppm'], 375)
+        self.assertLessEqual(settled['inlet_ppm'], 400)
+        polluted = post(self.client, inlet_ppm=0.45, outlet_ppm=0.30)['recorded']
+        self.assertGreater(polluted['inlet_ppm'], 550)
+
     def test_recalibrate_resets_reference(self):
         self.calibrate(inlet=0.6, outlet=0.5)
         self.assertEqual(self.client.post('/api/sensors/calibrate').json()['status'], 'calibrating')
