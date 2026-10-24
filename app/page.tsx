@@ -592,6 +592,14 @@ type HardwareState = {
   scanned_ports: Array<{device: string; description: string}>;
 };
 
+const CO2_BANDS:Array<[number, string, string]> = [[450, 'Excellent', '#3c8a46'], [800, 'Good', '#5f9e3e'], [1000, 'Acceptable', '#b8902a'], [2000, 'Poor', '#d0703c'], [Infinity, 'Unhealthy', '#b03a30']];
+
+function Co2Band({ppm}:{ppm:number|null}) {
+  if (ppm == null) return <span className="co2-band" style={{background:'#9aa596'}}>—</span>;
+  const [, label, color] = CO2_BANDS.find(([max]) => ppm <= max)!;
+  return <span className="co2-band" style={{background:color}}>{label}</span>;
+}
+
 function ChamberSensors({mossEfficiency,algaeEfficiency,onApplyEfficiency}:{mossEfficiency:number;algaeEfficiency:number;onApplyEfficiency:(eff:number)=>void}) {
   const [live, setLive] = useState<SensorTelemetry|null>(null);
   const [hardware, setHardware] = useState<HardwareState|null>(null);
@@ -1057,19 +1065,19 @@ function ChamberSensors({mossEfficiency,algaeEfficiency,onApplyEfficiency}:{moss
 
     <div className="sensors-kpi-grid">
       <article className={`sensor-kpi-card inlet-card ${poppedCard === 'inlet' ? 'pop' : ''}`}>
-        <div className="card-tag"><span>01 / INTAKE AIR <InfoTip label="About intake reading"><strong>Dirty air going in</strong>MQ-135 #1 at the chamber intake: the baseline the filter works against. It reacts to a mix of gases (ammonia, nitrogen oxides, benzene, smoke, CO₂) and reports an estimated ppm. Needs a 24–48 h warm-up and calibration; changes over time are more reliable than the absolute number.</InfoTip></span><small>MQ-135 #1 · {selectedBoard === 'esp32' ? 'GPIO34' : 'Pin A0'}</small></div>
-        <h3>Pre-Filter Gas PPM</h3>
+        <div className="card-tag"><span>SENSOR 1 · INTAKE (MQ-135) <InfoTip label="About intake reading"><strong>Dirty air going in</strong>MQ-135 #1 at the chamber intake: the baseline the filter works against. It reacts to a mix of gases (ammonia, nitrogen oxides, benzene, smoke, CO₂) and reports an estimated ppm. Needs a 24–48 h warm-up and calibration; changes over time are more reliable than the absolute number.</InfoTip></span><small>MQ-135 #1 · {selectedBoard === 'esp32' ? 'GPIO34' : 'Pin A0'}</small></div>
+        <h3>Sensor 1 · Intake</h3>
         <div className="reading-val">{shownGas.inlet != null ? shownGas.inlet.toFixed(0) : '—'}<small>ppm CO₂</small></div>
         <small className="pop-next">{live ? (gasTurn.current === 'inlet' ? `next update in ${popCountdown} s` : `next update in ${popCountdown + POP_MS / 1000} s`) : ' '}</small>
-        <div className="sensor-status-badge info">Intake / Dirty Air Baseline</div>
+        <Co2Band ppm={shownGas.inlet}/>
       </article>
 
       <article className={`sensor-kpi-card outlet-card ${poppedCard === 'outlet' ? 'pop' : ''}`}>
-        <div className="card-tag"><span>02 / PURIFIED AIR <InfoTip label="About exhaust reading"><strong>Cleaned air coming out</strong>MQ-135 #2 at the exhaust, after both biological stages. Same sensor type as the intake, so the two are directly comparable. Lower than the intake means pollutants are being captured inside the chamber.</InfoTip></span><small>MQ-135 #2 · {selectedBoard === 'esp32' ? 'GPIO35' : 'Pin A1'}</small></div>
-        <h3>Post-Filter Gas PPM</h3>
+        <div className="card-tag"><span>SENSOR 2 · EXHAUST (MQ-135) <InfoTip label="About exhaust reading"><strong>Cleaned air coming out</strong>MQ-135 #2 at the exhaust, after both biological stages. Same sensor type as the intake, so the two are directly comparable. Lower than the intake means pollutants are being captured inside the chamber.</InfoTip></span><small>MQ-135 #2 · {selectedBoard === 'esp32' ? 'GPIO35' : 'Pin A1'}</small></div>
+        <h3>Sensor 2 · Exhaust</h3>
         <div className="reading-val">{shownGas.outlet != null ? shownGas.outlet.toFixed(0) : '—'}<small>ppm CO₂</small></div>
         <small className="pop-next">{live ? (gasTurn.current === 'outlet' ? `next update in ${popCountdown} s` : `next update in ${popCountdown + POP_MS / 1000} s`) : ' '}</small>
-        <div className="sensor-status-badge optimal">Exhaust / Treated Air Stream</div>
+        <Co2Band ppm={shownGas.outlet}/>
       </article>
 
       <article className="sensor-kpi-card highlight">
@@ -1133,23 +1141,23 @@ function ChamberSensors({mossEfficiency,algaeEfficiency,onApplyEfficiency}:{moss
               <LineChart data={chartData} margin={{top: 15, right: 20, left: 0, bottom: 5}}>
                 <CartesianGrid stroke="#dfe5d7" strokeDasharray="4 5" vertical={false}/>
                 <XAxis dataKey="time" stroke="#73806f"/>
-                <YAxis unit=" ppm" stroke="#73806f"/>
+                <YAxis unit=" ppm CO₂" width={90} stroke="#73806f"/>
                 <Tooltip
                   content={({active, payload, label}:any) => {
                     if (!active || !payload?.length) return null;
                     return (
                       <div className="model-tooltip">
                         <strong>Time: {label}</strong>
-                        <span style={{color: '#c29b84'}}>Inlet (Pre-filter): {payload[0]?.value} ppm</span>
-                        <span style={{color: '#55b5ba'}}>Outlet (Treated): {payload[1]?.value} ppm</span>
+                        <span style={{color: '#c29b84'}}>Sensor 1 · Intake: {payload[0]?.value} ppm CO₂</span>
+                        <span style={{color: '#55b5ba'}}>Sensor 2 · Exhaust: {payload[1]?.value} ppm CO₂</span>
                         {payload[2] && <span>Efficiency: {payload[2]?.value}%</span>}
                       </div>
                     );
                   }}
                 />
                 <Legend/>
-                <Line type="monotone" dataKey="inlet" name="Pre-Filter Air (Higher PPM)" stroke="#99745c" strokeWidth={3} dot={false}/>
-                <Line type="monotone" dataKey="outlet" name="Post-Filter Air (Lower PPM)" stroke="#16858c" strokeWidth={3} dot={false}/>
+                <Line type="monotone" dataKey="inlet" name="Sensor 1 · Intake (MQ-135)" stroke="#99745c" strokeWidth={3} dot={false}/>
+                <Line type="monotone" dataKey="outlet" name="Sensor 2 · Exhaust (MQ-135)" stroke="#16858c" strokeWidth={3} dot={false}/>
               </LineChart>
             </ResponsiveContainer>
           ) : (

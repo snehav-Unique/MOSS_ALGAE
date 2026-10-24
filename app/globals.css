@@ -383,3 +383,4 @@ h1 .info-tip{width:24px;height:24px;font-size:14px;vertical-align:.35em}
 .sensor-kpi-card.pop{box-shadow:0 0 0 3px #22c55e99,0 10px 26px #16858c33;transform:translateY(-3px)}
 .sensor-kpi-card .pop-next{font-size:.8rem;color:#7a8677}
 @media(prefers-reduced-motion:reduce){.sensor-kpi-card{transition:none}.sensor-kpi-card.pop{transform:none}}
+.co2-band{display:inline-block;align-self:flex-start;margin-top:auto;padding:3px 10px;border-radius:999px;color:#fff;font-size:.85rem;font-weight:600;letter-spacing:.2px}
