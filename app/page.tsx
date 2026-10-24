@@ -307,7 +307,7 @@ function MossExperience() {
         </article>
       </div>
       <footer className="model-note"><span>MODEL 0.2 / TWO-STAGE</span><p>The future view models moss followed by algae in series. Combined efficiency is 1 − (1 − moss efficiency) × (1 − algae efficiency), preventing double-counting. Both efficiencies require pollutant-specific measurement and field calibration.</p><span>{air?.time ? `DATA ${air.time.replace('T', ' ')}` : 'AWAITING DATA'}</span></footer>
-    </section> : view === 'analysis' ? <Analysis air={air} loading={loading} error={error} units={units} setUnits={setUnits} efficiency={efficiency} setEfficiency={setEfficiency} algaeEfficiency={algaeEfficiency} setAlgaeEfficiency={setAlgaeEfficiency} hours={hours} setHours={setHours}/> : view === 'locations' ? <Locations totalUnits={units} setTotalUnits={setUnits} mossEfficiency={efficiency} algaeEfficiency={algaeEfficiency} hours={hours}/> : view === 'planner' ? <Planner mossEfficiency={efficiency} algaeEfficiency={algaeEfficiency} dutyHours={dutyHours} setDutyHours={value => {setDutyHours(value); setScheduleSource(null)}} scheduleSource={scheduleSource} planner={plannerState} onStateChange={setPlannerState}/> : view === 'forecast' ? <Forecast onApplySchedule={(value, label) => {setDutyHours(value); setScheduleSource(label); setView('planner')}}/> : <ChamberSensors mossEfficiency={efficiency} algaeEfficiency={algaeEfficiency} onApplyEfficiency={eff => { setEfficiency(Math.round(eff)); setAlgaeEfficiency(0); setView('twin'); }} />}
+    </section> : view === 'analysis' ? <Analysis air={air} loading={loading} error={error} units={units} efficiency={efficiency} algaeEfficiency={algaeEfficiency} hours={hours}/> : view === 'locations' ? <Locations totalUnits={units} setTotalUnits={setUnits} mossEfficiency={efficiency} algaeEfficiency={algaeEfficiency} hours={hours}/> : view === 'planner' ? <Planner mossEfficiency={efficiency} algaeEfficiency={algaeEfficiency} dutyHours={dutyHours} setDutyHours={value => {setDutyHours(value); setScheduleSource(null)}} scheduleSource={scheduleSource} planner={plannerState} onStateChange={setPlannerState}/> : view === 'forecast' ? <Forecast onApplySchedule={(value, label) => {setDutyHours(value); setScheduleSource(label); setView('planner')}}/> : <ChamberSensors mossEfficiency={efficiency} algaeEfficiency={algaeEfficiency} onApplyEfficiency={eff => { setEfficiency(Math.round(eff)); setAlgaeEfficiency(0); setView('twin'); }} />}
 
     {view !== 'home' && <Assistant planner={plannerState}/>}
   </main>;
@@ -490,8 +490,8 @@ function Locations({totalUnits,setTotalUnits,mossEfficiency,algaeEfficiency,hour
   </section>;
 }
 
-function Analysis({air, loading, error, units, setUnits, efficiency, setEfficiency, algaeEfficiency, setAlgaeEfficiency, hours, setHours}:{
-  air:Air|null; loading:boolean; error:string; units:number; setUnits:(value:number)=>void; efficiency:number; setEfficiency:(value:number)=>void; algaeEfficiency:number; setAlgaeEfficiency:(value:number)=>void; hours:number; setHours:(value:number)=>void;
+function Analysis({air, loading, error, units, efficiency, algaeEfficiency, hours}:{
+  air:Air|null; loading:boolean; error:string; units:number; efficiency:number; algaeEfficiency:number; hours:number;
 }) {
   const airflowPerUnit = 500;
   const ventilation = 12000;
@@ -523,10 +523,6 @@ function Analysis({air, loading, error, units, setUnits, efficiency, setEfficien
       return {time:Number(time.toFixed(1)), baseline:Number(air.pm25.toFixed(2)), mossOnly:Number(mossOnly.toFixed(2)), combined:Number(combined.toFixed(2)), mossCaptured:Number(mossCaptured.toFixed(4)), algaeCaptured:Number(algaeCaptured.toFixed(4)), totalCaptured:Number((mossCaptured + algaeCaptured).toFixed(4))};
     });
   }, [air, hours, cadr, mossCadr, totalFlow, mossFraction, algaeFraction]);
-  const end = trend.at(-1);
-  const reduction = end && air && air.pm25 > 0 ? (1 - end.combined / air.pm25) * 100 : null;
-  const algaeImprovement = end?.mossOnly ? (1 - end.combined / end.mossOnly) * 100 : null;
-  const algaeMassShare = end?.totalCaptured ? end.algaeCaptured / end.totalCaptured * 100 : null;
   const scenarios = useMemo(() => {
     if (!air) return [];
     return [Math.max(1, Math.round(units / 2)), units, Math.min(100, units * 2)].map(count => {
@@ -541,23 +537,6 @@ function Analysis({air, loading, error, units, setUnits, efficiency, setEfficien
       <div><p className="kicker">MOSS + ALGAE / TWO-STAGE BIOFILTRATION</p><h1>Use the measured 79% result.</h1><p>The tested chamber efficiency is the baseline. Add a separate algae-stage value only when that incremental stage has its own measurement.</p></div>
       <div className="analysis-status">{loading ? <><LoaderCircle className="spin" size={18}/> Loading baseline</> : error ? <span className="warn">{error}</span> : <><span className="live-dot"/> Baseline {air?.pm25.toFixed(1) ?? '—'} µg/m³</>}</div>
     </header>
-
-    <div className="bio-process" aria-label="Two-stage biofiltration process"><div><span>MEASURED BASELINE</span><strong>Tested chamber</strong><small>{efficiency}% single-pass efficiency supplied from the experiment</small></div><i>→</i><div className="algae-stage"><span>OPTIONAL INCREMENT</span><strong>Separate algae polishing</strong><small>Treats only the fraction remaining after the measured chamber result</small></div><i>→</i><div><span>COMBINED</span><strong>{(combinedEfficiency * 100).toFixed(1)}% efficiency</strong><small>Series equation; not a sum of efficiencies</small></div></div>
-
-    <div className="analysis-controls five" aria-label="Model assumptions">
-      <label><span>MOSS UNITS</span><strong>{units}</strong><input type="range" min="1" max="100" value={units} onChange={event => setUnits(Number(event.target.value))}/></label>
-      <label><span>MEASURED CHAMBER EFFICIENCY</span><strong>{efficiency}%</strong><input type="range" min="5" max="85" value={efficiency} onChange={event => setEfficiency(Number(event.target.value))}/></label>
-      <label><span>ADDITIONAL ALGAE-STAGE EFFICIENCY</span><strong>{algaeEfficiency}%</strong><input type="range" min="0" max="70" value={algaeEfficiency} onChange={event => setAlgaeEfficiency(Number(event.target.value))}/></label>
-      <label><span>ANALYSIS HORIZON</span><strong>{hours} hours</strong><input type="range" min="1" max="24" value={hours} onChange={event => setHours(Number(event.target.value))}/></label>
-      <div className="assumption"><span>COMBINED CLEAN-AIR DELIVERY</span><strong>{cadr.toLocaleString(undefined,{maximumFractionDigits:0})} m³/h</strong><small>Measured chamber {mossCadr.toFixed(0)} + algae increment {algaeIncrementalCadr.toFixed(0)} m³/h</small></div>
-    </div>
-
-    <div className="analysis-metrics">
-      <AnalysisMetric label="COMBINED PM2.5 AT HORIZON" value={end ? `${end.combined.toFixed(1)} µg/m³` : 'Awaiting data'} detail="Moss followed by algae"/>
-      <AnalysisMetric label="RELATIVE CONCENTRATION CHANGE" value={reduction != null ? `−${Math.max(0,reduction).toFixed(1)}%` : 'Awaiting data'} detail="Not an AQI or health-effect estimate"/>
-      <AnalysisMetric label="ALGAE INCREMENT" value={algaeImprovement != null ? `−${Math.max(0,algaeImprovement).toFixed(1)}%` : 'Awaiting data'} detail="Additional change versus moss-only"/>
-      <AnalysisMetric label="ALGAE MASS CONTRIBUTION" value={end ? `${end.algaeCaptured.toFixed(3)} g` : 'Awaiting data'} detail={algaeMassShare != null ? `${algaeMassShare.toFixed(1)}% of combined captured mass` : `Integrated over ${hours} hours`}/>
-    </div>
 
     <div className="chart-grid">
       <article className="chart-card concentration-chart">
@@ -585,13 +564,6 @@ function Analysis({air, loading, error, units, setUnits, efficiency, setEfficien
   </section>;
 }
 
-const METRIC_HELP:Record<string,string> = {
-  'COMBINED PM2.5 AT HORIZON':'PM2.5 the box model predicts after the chosen hours with moss followed by algae.',
-  'RELATIVE CONCENTRATION CHANGE':'How much lower the modeled PM2.5 is than the starting value, in percent.',
-  'ALGAE INCREMENT':'Extra reduction from adding the algae stage, compared with moss alone under identical conditions.',
-  'ALGAE MASS CONTRIBUTION':'Grams of PM2.5 captured by the algae stage over the horizon, and its share of the total captured mass.',
-};
-function AnalysisMetric({label,value,detail}:{label:string;value:string;detail:string}) {return <div className="analysis-metric"><span>{label}</span><strong>{value}</strong><small>{detail}</small>{METRIC_HELP[label]&&<p className="metric-help">{METRIC_HELP[label]}</p>}</div>}
 function ChartEmpty() {return <div className="chart-empty"><Activity size={28}/><strong>Waiting for current air data</strong><span>The graph will appear when the baseline source responds.</span></div>}
 function ModelTooltip({active,payload,label}:any) {if (!active || !payload?.length) return null; return <div className="model-tooltip"><strong>{label} hours</strong><span>Without biofilter: {payload[0]?.value} µg/m³</span><span>Measured chamber: {payload[1]?.value} µg/m³</span><span>With algae increment: {payload[2]?.value} µg/m³</span></div>}
 function CaptureTooltip({active,payload,label}:any) {if (!active || !payload?.length) return null; return <div className="model-tooltip"><strong>{label} hours</strong><span>Moss: {Number(payload[0]?.value).toFixed(4)} g</span><span>Algae: {Number(payload[1]?.value).toFixed(4)} g</span><span>Total: {(Number(payload[0]?.value) + Number(payload[1]?.value)).toFixed(4)} g</span></div>}
