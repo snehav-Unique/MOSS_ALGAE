@@ -534,7 +534,7 @@ function Analysis({air, loading, error, units, efficiency, algaeEfficiency, hour
 
   return <section className="analysis-view">
     <header className="analysis-header">
-      <div><p className="kicker">MOSS + ALGAE / TWO-STAGE BIOFILTRATION</p><h1>Use the measured 79% result.</h1><p>The tested chamber efficiency is the baseline. Add a separate algae-stage value only when that incremental stage has its own measurement.</p></div>
+      <div><p className="kicker">MOSS + ALGAE / TWO-STAGE BIOFILTRATION</p><h1>60% to 80% efficiency.</h1><p>The expected chamber-performance range is shown for analysis. Confirm the operating value with measured field data.</p></div>
       <div className="analysis-status">{loading ? <><LoaderCircle className="spin" size={18}/> Loading baseline</> : error ? <span className="warn">{error}</span> : <><span className="live-dot"/> Baseline {air?.pm25.toFixed(1) ?? '—'} µg/m³</>}</div>
     </header>
 
