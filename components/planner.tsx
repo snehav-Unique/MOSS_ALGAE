@@ -7,15 +7,7 @@ import {receptorTotal, useExposure} from './exposure';
 import {PlannerState} from './assistant';
 import {ReportData, ReportSheet} from './report';
 import {useLeafletMap} from './use-leaflet-map';
-import {Guide} from './info';
-
 const CRITERIA = ['Cost efficiency', 'Exposure', 'Feasibility', 'Equity'];
-const WEIGHT_HELP = [
-  'Favors cheaper areas, so the budget stretches further. Score = cheapest area cost ÷ this area’s cost.',
-  'Favors dirty air near many people: PM2.5 × (1 + schools, clinics and bus stops within 500 m).',
-  'Favors areas where installation is practical: space, power and permissions. A team assumption you can edit below.',
-  'Favors underserved neighbourhoods, such as industrial or low-income wards. A team assumption you can edit below.',
-];
 
 // Planning assumptions per area. Editable in the table; replace with site-survey data before real use.
 const SITE_ASSUMPTIONS:Record<string,{setup:number; feasibility:number; equity:number}> = {
@@ -195,12 +187,6 @@ export function Planner({mossEfficiency, algaeEfficiency, dutyHours, setDutyHour
       {CRITERIA.map((name, index) => <label key={name}><span>WEIGHT · {name.toUpperCase()}</span><strong>{result ? `${Math.round(result.normalized_weights[index] * 100)}%` : weights[index]}</strong><input type="range" min="0" max="100" value={weights[index]} onChange={e => setWeights(current => current.map((w, i) => i === index ? Number(e.target.value) : w))}/></label>)}
     </div>
 
-    <Guide title="How the planner decides" columns={4} items={[
-      {title:'Budget, pod cost, pods per area', body:'The optimizer never exceeds the budget. Each area costs its setup cost plus pods × cost per pod. More pods per area means stronger local cleaning but fewer areas.'},
-      ...CRITERIA.map((name, i) => ({title:`${name} weight`, body:WEIGHT_HELP[i]})),
-      {title:'Sensitivity', body:'Each priority is raised by 20% and the optimizer re-run. “Unchanged” everywhere means the recommendation doesn’t hinge on the exact weights.'},
-      {title:'Lifecycle cost and cost per gram', body:'Upfront cost plus every future year’s electricity and maintenance, discounted to today’s rupees. Dividing by the PM2.5 mass captured gives cost per gram, for comparing options; it is not a health figure.'},
-    ]}/>
     <div className="planner-grid">
       <article className="feature-panel">
         <div className="panel-heading"><div><span>OPTIMAL SET / {selected.length} OF {candidates.length} AREAS</span><h2>Recommended deployment</h2></div><p>Teal pins are selected. Badges show pods per area.</p></div>
