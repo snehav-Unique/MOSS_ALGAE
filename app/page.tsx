@@ -11,7 +11,7 @@ import {Planner} from '../components/planner';
 import {Assistant, PlannerState} from '../components/assistant';
 import {InfoTip} from '../components/info';
 import {MAP_OPTIONS} from '../components/use-leaflet-map';
-import {AnimatedNumber, LiveProvider, LiveStrip, Sparkline, Trend, ago, useLive, useNow} from '../components/live';
+import {LiveProvider, LiveStrip} from '../components/live';
 
 const INITIAL_SITE = {lat: 12.9716, lng: 77.5946};
 const MEASURED_SYSTEM_EFFICIENCY = 79;
@@ -40,14 +40,7 @@ export default function Page() {
   return <LiveProvider><MossExperience/></LiveProvider>;
 }
 
-function HomeLive() {
-  const {city, cityFetchedAt} = useLive();
-  const now = useNow(1000);
-  if (!city) return null;
-  const worst = city.sites.reduce((max, s) => s.pm25 > max.pm25 ? s : max, city.sites[0]);
-  const aboveWho = city.sites.filter(s => s.pm25 > WHO_PM25_24H).length;
-  return <div className="home-live"><span><i className="live-pulse"/> BENGALURU RIGHT NOW</span><strong><AnimatedNumber value={city.avg}/><small> µg/m³ avg PM2.5</small></strong><Trend change={city.change1h}/><Sparkline values={city.series24h} width={180} height={34} color="#dbe5b7"/><p>{aboveWho} of {city.sites.length} areas above the WHO guideline · worst: {worst.name} ({worst.pm25.toFixed(0)})</p><small>Open-Meteo model · updated {ago(cityFetchedAt, now)}</small></div>;
-}
+
 
 function distanceKm(a:{lat:number;lng:number},b:{lat:number;lng:number}) {
   const radians=(degrees:number)=>degrees*Math.PI/180;
@@ -278,7 +271,6 @@ function MossExperience() {
         <p className="lede">A spatial model for placing moss biofilters, reading the air now, and exploring a more breathable future.</p>
         <div className="hero-actions"><button className="enter-twin" onClick={() => setView('twin')}>EXPLORE THE FUTURE AIR <ArrowDown size={16}/></button><a className="enter-twin citizen-link" href="/citizen">FOR CITIZENS · ನಾಗರಿಕರಿಗೆ · नागरिकों के लिए</a></div>
       </div>
-      <HomeLive/>
       <div className="landing-note"><span>01</span><p>MOSS / MICROALGAE<br/>URBAN AIR SYSTEM</p></div>
     </section> : view === 'twin' ? <section className="twin">
       <header className="twin-header">
