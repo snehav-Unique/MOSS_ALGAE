@@ -18,6 +18,9 @@ venv/
 .env.*
 !.env.example
 
+# Hide this file from git status when untracked
+.gitignore
+
 # Logs and OS/editor artifacts
 *.log
 .DS_Store
