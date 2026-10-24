@@ -4,7 +4,6 @@ import {useEffect, useMemo, useState} from 'react';
 import {ArrowRight, CalendarClock, LoaderCircle, ShieldCheck, Zap} from 'lucide-react';
 import {Area, ComposedChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis} from 'recharts';
 import {CANDIDATE_SITES, HourlyPoint, fetchHourlyAir, formatHour} from '../lib/air';
-import {Guide} from './info';
 
 function percentile(values:number[], p:number) {
   const sorted = [...values].sort((a, b) => a - b);
@@ -73,12 +72,6 @@ export function Forecast({onApplySchedule}:{onApplySchedule:(fullPowerHoursPerDa
       <label><span>ECO POWER</span><strong>{ecoWatts} W</strong><input type="range" min="0" max={boostWatts} step="1" value={Math.min(ecoWatts, boostWatts)} onChange={e => setEcoWatts(Number(e.target.value))}/></label>
     </div>
 
-    <Guide title="How the smart schedule works" columns={4} items={[
-      {title:'Boost threshold', body:'Pods run at full airflow whenever the forecast reaches this PM2.5 level. It starts at the 70th percentile of the 72-hour forecast.'},
-      {title:'Lead time and eco mode', body:'Lead time starts boosting a few hours before a peak so the air is already being cleaned when pollution arrives. Eco airflow is the reduced fan speed used the rest of the time.'},
-      {title:'Energy saved', body:'Electricity saved per pod over the forecast window compared with running at full power every hour.'},
-      {title:'Capture retained', body:'How much of the always-on captured mass the smart schedule still achieves, because it runs hardest when the air is dirtiest.'},
-    ]}/>
     <div className="analysis-metrics">
       <div className="analysis-metric"><span>FORECAST PEAK</span><strong>{plan ? `${plan.peak.pm25.toFixed(0)} µg/m³` : '—'}</strong><small>{plan ? plan.peak.label : 'Awaiting forecast'}</small></div>
       <div className="analysis-metric"><span>NEXT BOOST STARTS</span><strong>{plan?.firstBoost ? plan.firstBoost.label : plan ? 'Not needed' : '—'}</strong><small>{plan ? `${plan.boostHours} of ${plan.hours} hours at full airflow` : ''}</small></div>
