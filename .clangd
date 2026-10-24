@@ -2,11 +2,8 @@ CompileFlags:
   Add:
     - "-xc++"
     - "-std=c++17"
-    - "-Wno-everything"
+    - "-w"
+    - "-ferror-limit=0"
 
 Diagnostics:
-  Suppress:
-    - "fe_expected_compiler_job"
-    - "pp_file_not_found"
-    - "unknown_typename"
-    - "undeclared_var_use"
+  Suppress: "*"

@@ -22,8 +22,8 @@ const char* ssid     = "FUCK YOU";
 const char* password = "dengai123";
 
 // --- FastAPI Backend Server URL ---
-// Your computer's current local IP address is 172.17.5.165:
-const char* serverUrl = "http://172.17.5.165:8000/api/sensors/reading";
+// Your computer's current local IP address is 10.200.13.2:
+const char* serverUrl = "http://10.200.13.2:8000/api/sensors/reading";
 
 // --- Optional: Direct Telegram Bot Alerts ---
 // Enter your Telegram Bot Token & Chat ID here to get alerts even if computer is off:
