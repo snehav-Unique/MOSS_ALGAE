@@ -523,15 +523,6 @@ function Analysis({air, loading, error, units, efficiency, algaeEfficiency, hour
       return {time:Number(time.toFixed(1)), baseline:Number(air.pm25.toFixed(2)), mossOnly:Number(mossOnly.toFixed(2)), combined:Number(combined.toFixed(2)), mossCaptured:Number(mossCaptured.toFixed(4)), algaeCaptured:Number(algaeCaptured.toFixed(4)), totalCaptured:Number((mossCaptured + algaeCaptured).toFixed(4))};
     });
   }, [air, hours, cadr, mossCadr, totalFlow, mossFraction, algaeFraction]);
-  const scenarios = useMemo(() => {
-    if (!air) return [];
-    return [Math.max(1, Math.round(units / 2)), units, Math.min(100, units * 2)].map(count => {
-      const scenarioCadr = airflowPerUnit * combinedEfficiency * count;
-      const concentration = modelLocally(air.pm25, air.pm25, ventilation, scenarioCadr, volume, hours);
-      return {units:count, concentration:Number(concentration.toFixed(2)), reduction:Number(((1 - concentration / air.pm25) * 100).toFixed(2))};
-    });
-  }, [air, units, combinedEfficiency, hours]);
-
   return <section className="analysis-view">
     <header className="analysis-header">
       <div><p className="kicker">MOSS + ALGAE / TWO-STAGE BIOFILTRATION</p><h1>60% to 80% efficiency.</h1><p>The expected chamber-performance range is shown for analysis. Confirm the operating value with measured field data.</p></div>
@@ -549,18 +540,6 @@ function Analysis({air, loading, error, units, efficiency, algaeEfficiency, hour
           <div className="chart-frame">{trend.length ? <ResponsiveContainer width="100%" height="100%"><AreaChart data={trend} margin={{top:15,right:22,left:5,bottom:5}}><defs><linearGradient id="mossFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#78984f" stopOpacity={.75}/><stop offset="100%" stopColor="#78984f" stopOpacity={.16}/></linearGradient><linearGradient id="algaeFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#1e9aa2" stopOpacity={.72}/><stop offset="100%" stopColor="#1e9aa2" stopOpacity={.14}/></linearGradient></defs><CartesianGrid stroke="#dfe5d7" strokeDasharray="4 5" vertical={false}/><XAxis dataKey="time" tickFormatter={value => `${value}h`} stroke="#73806f"/><YAxis unit=" g" stroke="#73806f"/><Tooltip content={<CaptureTooltip/>}/><Legend/><Area stackId="capture" type="monotone" dataKey="mossCaptured" name="Measured chamber capture" stroke="#58763e" strokeWidth={3} fill="url(#mossFill)"/><Area stackId="capture" type="monotone" dataKey="algaeCaptured" name="Additional algae capture" stroke="#147b81" strokeWidth={3} fill="url(#algaeFill)"/></AreaChart></ResponsiveContainer> : <ChartEmpty/>}</div>
       </article>
     </div>
-
-    <Guide title="Reading the charts" columns={4} items={[
-      {title:'Concentration trend', body:'Brown: no biofilter (flat baseline). Green: moss only. Teal: moss + algae. The gap between green and teal is what the algae stage adds.'},
-      {title:'Capture trend', body:'Grams of PM2.5 held by the moss (green) and algae (teal) stages, stacked. The top edge is the total captured over the horizon.'},
-      {title:'Clean-air delivery', body:'Total airflow × combined efficiency, split into the moss part and the extra part the algae add. This is the cleaning power the model uses.'},
-      {title:'Scale sensitivity', body:'Half, current and double the pod count, showing whether more pods keep helping or give diminishing returns at this ventilation rate.'},
-    ]}/>
-    <div className="analysis-bottom">
-      <article className="scenario-card"><div className="chart-title"><div><span>03 / SCALE SENSITIVITY</span><h2>What changes when unit count changes?</h2></div></div><div className="scenario-bars">{scenarios.map((scenario,index) => <div className={index === 1 ? 'selected' : ''} key={`${scenario.units}-${index}`}><span>{scenario.units} units</span><div className="bar-track"><i style={{width:`${Math.min(100, scenario.reduction * 4)}%`}}/></div><strong>−{scenario.reduction.toFixed(1)}%</strong><small>{scenario.concentration.toFixed(1)} µg/m³</small></div>)}</div></article>
-      <article className="urban-card"><span className="urban-tag">URBAN RELEVANCE</span><h2>A compact living two-stage unit</h2><div className="urban-points"><div><CheckCircle2/><p><strong>Moss pre-filtration</strong>The first stage captures a measured pollutant fraction while providing a high-surface-area biological matrix.</p></div><div><CheckCircle2/><p><strong>Algae polishing</strong>The second stage treats only what remains, making its incremental contribution measurable instead of simply adding two efficiency claims.</p></div><div><ShieldCheck/><p><strong>Evidence boundary</strong>The model covers PM2.5 mass balance. Algal CO₂ uptake, oxygen production, biomass yield and health benefit require separate measured inputs and are not claimed here.</p></div></div></article>
-    </div>
-    <footer className="analysis-disclaimer"><strong>INTERPRETATION</strong><p>The algae increment is the difference between the moss-only and two-stage model under identical airflow, volume and time assumptions. Real performance requires pollutant-specific tests for each medium, pressure-drop and airflow measurements, maintenance data and field calibration. Trees provide shade, cooling, habitat and stormwater services that this unit does not reproduce.</p></footer>
   </section>;
 }
 
