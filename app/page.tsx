@@ -552,6 +552,22 @@ type SensorTelemetry = {
   };
 };
 
+/** Normalize a telemetry sample: higher PPM = pre-filter (inlet), lower = post-filter (outlet). */
+function normalizeSample(item: SensorTelemetry): SensorTelemetry {
+  if (!item) return item;
+  const raw1 = item.inlet_ppm;
+  const raw2 = item.outlet_ppm;
+  const pre = Math.max(raw1, raw2);
+  const post = Math.min(raw1, raw2);
+  const eff = pre > 0 ? Math.max(0, Math.min(95, ((pre - post) / pre) * 100)) : 0;
+  return {
+    ...item,
+    inlet_ppm: Number(pre.toFixed(2)),
+    outlet_ppm: Number(post.toFixed(2)),
+    efficiency: Number(eff.toFixed(2)),
+  };
+}
+
 type HardwareState = {
   active: boolean;
   port: string | null;
@@ -606,8 +622,8 @@ function ChamberSensors({mossEfficiency,algaeEfficiency,onApplyEfficiency}:{moss
         const data = await res.json();
         setConnected(Boolean(data.connected));
         if (data.hardware) setHardware(data.hardware);
-        if (data.latest) setLive(data.latest);
-        if (data.history) setHistory(data.history);
+        if (data.latest) setLive(normalizeSample(data.latest));
+        if (data.history) setHistory((data.history as SensorTelemetry[]).map(normalizeSample));
       }
     } catch {
       // Backend service not reachable
@@ -773,7 +789,7 @@ function ChamberSensors({mossEfficiency,algaeEfficiency,onApplyEfficiency}:{moss
       });
       if (res.ok) {
         const data = await res.json();
-        const sample = data.recorded as SensorTelemetry;
+        const sample = normalizeSample(data.recorded as SensorTelemetry);
         setConnected(true);
         setLive(sample);
         setHistory(curr => [...curr.filter(item => item.timestamp !== sample.timestamp).slice(-59), sample]);
@@ -1084,8 +1100,8 @@ function ChamberSensors({mossEfficiency,algaeEfficiency,onApplyEfficiency}:{moss
                   }}
                 />
                 <Legend/>
-                <Line type="monotone" dataKey="inlet" name="Inlet Air (MQ-135 #1)" stroke="#99745c" strokeWidth={3} dot={false}/>
-                <Line type="monotone" dataKey="outlet" name="Outlet Air (MQ-135 #2)" stroke="#16858c" strokeWidth={3} dot={false}/>
+                <Line type="monotone" dataKey="inlet" name="Pre-Filter Air (Higher PPM)" stroke="#99745c" strokeWidth={3} dot={false}/>
+                <Line type="monotone" dataKey="outlet" name="Post-Filter Air (Lower PPM)" stroke="#16858c" strokeWidth={3} dot={false}/>
               </LineChart>
             </ResponsiveContainer>
           ) : (

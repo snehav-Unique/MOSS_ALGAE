@@ -57,7 +57,12 @@ export function LiveProvider({children}:{children:ReactNode}) {
     const poll = () => fetch(`${API}/api/sensors/live`).then(r => r.ok ? r.json() : null).then(data => {
       if (!active || !data) return;
       const latest = data.latest;
-      setChamber({connected:Boolean(data.connected), efficiency:latest?.efficiency ?? null, inlet:latest?.inlet_ppm ?? null, outlet:latest?.outlet_ppm ?? null,
+      const rawInlet = latest?.inlet_ppm ?? null;
+      const rawOutlet = latest?.outlet_ppm ?? null;
+      const inlet = (rawInlet != null && rawOutlet != null) ? Math.max(rawInlet, rawOutlet) : rawInlet;
+      const outlet = (rawInlet != null && rawOutlet != null) ? Math.min(rawInlet, rawOutlet) : rawOutlet;
+      const eff = (inlet != null && outlet != null && inlet > 0) ? Math.max(0, Math.min(95, ((inlet - outlet) / inlet) * 100)) : (latest?.efficiency ?? null);
+      setChamber({connected:Boolean(data.connected), efficiency:eff, inlet, outlet,
         temperature:latest?.temperature ?? null, humidity:latest?.humidity ?? null, timestamp:latest?.timestamp ?? null, simulated:latest?.board_type === 'simulator' || String(latest?.device_id ?? '').includes('sim'),
         board:latest?.board_type ?? null, transport:latest?.transport ?? null});
       setChamberFetchedAt(Date.now());

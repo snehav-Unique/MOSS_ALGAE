@@ -501,20 +501,24 @@ async def test_telegram_alert():
 @app.post('/api/sensors/reading')
 def ingest_sensor_reading(reading: SensorReading):
     global latest_sensor_reading, latest_sensor_received_at
-    # Calculate measured efficiency: (inlet - outlet) / inlet * 100
-    eff = reading.efficiency
-    if eff is None:
-        if reading.inlet_ppm > 0:
-            eff = max(0.0, min(95.0, (reading.inlet_ppm - reading.outlet_ppm) / reading.inlet_ppm * 100.0))
-        else:
-            eff = 0.0
+    # Whichever sensor shows more is Pre-Filter (inlet), whichever shows less is Post-Filter (outlet)
+    raw1 = round(reading.inlet_ppm, 2)
+    raw2 = round(reading.outlet_ppm, 2)
+    pre_filter = max(raw1, raw2)
+    post_filter = min(raw1, raw2)
+
+    # Calculate measured single-pass efficiency %: (pre_filter - post_filter) / pre_filter * 100
+    if pre_filter > 0:
+        eff = max(0.0, min(95.0, (pre_filter - post_filter) / pre_filter * 100.0))
+    else:
+        eff = 0.0
 
     timestamp = datetime.now(timezone.utc).isoformat()
     health = evaluate_chamber_health(reading.temperature, reading.humidity)
 
     data = {
-        "inlet_ppm": round(reading.inlet_ppm, 2),
-        "outlet_ppm": round(reading.outlet_ppm, 2),
+        "inlet_ppm": pre_filter,
+        "outlet_ppm": post_filter,
         "efficiency": round(eff, 2),
         "temperature": round(reading.temperature, 1) if reading.temperature is not None else None,
         "humidity": round(reading.humidity, 1) if reading.humidity is not None else None,
