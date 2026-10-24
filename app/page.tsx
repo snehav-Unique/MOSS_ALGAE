@@ -654,6 +654,7 @@ function ChamberSensors({mossEfficiency,algaeEfficiency,onApplyEfficiency}:{moss
   useEffect(() => {
     if (!live || live.inlet_ppm <= 0 || live.efficiency <= 0) return;
     const inletUgM3 = live.inlet_ppm * 1000;
+    const stepGrams = (airflow * (live.efficiency / 100) * inletUgM3 * (2 / 3600)) / 1e6;
     setCumulativeMassGrams(curr => {
       if (curr > 50000 || !Number.isFinite(curr)) return Number(stepGrams.toFixed(4));
       return curr + stepGrams;
