@@ -264,7 +264,7 @@ function MossExperience() {
       <div className="rail-index">01<br/><span>INDIA</span></div>
     </aside>
 
-    {view !== 'home' && <LiveStrip units={units} mossEfficiency={efficiency} algaeEfficiency={algaeEfficiency}/>}
+    {view !== 'home' && view !== 'analysis' && <LiveStrip units={units} mossEfficiency={efficiency} algaeEfficiency={algaeEfficiency}/>}
     {view === 'home' ? <section className="landing" aria-label="Moss algae landing page">
       <picture>
         <source srcSet="/MOSS.webp" type="image/webp"/>
@@ -307,7 +307,7 @@ function MossExperience() {
         </article>
       </div>
       <footer className="model-note"><span>MODEL 0.2 / TWO-STAGE</span><p>The future view models moss followed by algae in series. Combined efficiency is 1 − (1 − moss efficiency) × (1 − algae efficiency), preventing double-counting. Both efficiencies require pollutant-specific measurement and field calibration.</p><span>{air?.time ? `DATA ${air.time.replace('T', ' ')}` : 'AWAITING DATA'}</span></footer>
-    </section> : view === 'analysis' ? <Analysis air={air} loading={loading} error={error} units={units} efficiency={efficiency} algaeEfficiency={algaeEfficiency} hours={hours}/> : view === 'locations' ? <Locations totalUnits={units} setTotalUnits={setUnits} mossEfficiency={efficiency} algaeEfficiency={algaeEfficiency} hours={hours}/> : view === 'planner' ? <Planner mossEfficiency={efficiency} algaeEfficiency={algaeEfficiency} dutyHours={dutyHours} setDutyHours={value => {setDutyHours(value); setScheduleSource(null)}} scheduleSource={scheduleSource} planner={plannerState} onStateChange={setPlannerState}/> : view === 'forecast' ? <Forecast onApplySchedule={(value, label) => {setDutyHours(value); setScheduleSource(label); setView('planner')}}/> : <ChamberSensors mossEfficiency={efficiency} algaeEfficiency={algaeEfficiency} onApplyEfficiency={eff => { setEfficiency(Math.round(eff)); setAlgaeEfficiency(0); setView('twin'); }} />}
+    </section> : view === 'analysis' ? <Analysis air={air} units={units} efficiency={efficiency} algaeEfficiency={algaeEfficiency} hours={hours}/> : view === 'locations' ? <Locations totalUnits={units} setTotalUnits={setUnits} mossEfficiency={efficiency} algaeEfficiency={algaeEfficiency} hours={hours}/> : view === 'planner' ? <Planner mossEfficiency={efficiency} algaeEfficiency={algaeEfficiency} dutyHours={dutyHours} setDutyHours={value => {setDutyHours(value); setScheduleSource(null)}} scheduleSource={scheduleSource} planner={plannerState} onStateChange={setPlannerState}/> : view === 'forecast' ? <Forecast onApplySchedule={(value, label) => {setDutyHours(value); setScheduleSource(label); setView('planner')}}/> : <ChamberSensors mossEfficiency={efficiency} algaeEfficiency={algaeEfficiency} onApplyEfficiency={eff => { setEfficiency(Math.round(eff)); setAlgaeEfficiency(0); setView('twin'); }} />}
 
     {view !== 'home' && <Assistant planner={plannerState}/>}
   </main>;
@@ -490,8 +490,8 @@ function Locations({totalUnits,setTotalUnits,mossEfficiency,algaeEfficiency,hour
   </section>;
 }
 
-function Analysis({air, loading, error, units, efficiency, algaeEfficiency, hours}:{
-  air:Air|null; loading:boolean; error:string; units:number; efficiency:number; algaeEfficiency:number; hours:number;
+function Analysis({air, units, efficiency, algaeEfficiency, hours}:{
+  air:Air|null; units:number; efficiency:number; algaeEfficiency:number; hours:number;
 }) {
   const airflowPerUnit = 500;
   const ventilation = 12000;
@@ -524,11 +524,6 @@ function Analysis({air, loading, error, units, efficiency, algaeEfficiency, hour
     });
   }, [air, hours, cadr, mossCadr, totalFlow, mossFraction, algaeFraction]);
   return <section className="analysis-view">
-    <header className="analysis-header">
-      <div><p className="kicker">MOSS + ALGAE / TWO-STAGE BIOFILTRATION</p><h1>60% to 80% efficiency.</h1><p>The expected chamber-performance range is shown for analysis. Confirm the operating value with measured field data.</p></div>
-      <div className="analysis-status">{loading ? <><LoaderCircle className="spin" size={18}/> Loading baseline</> : error ? <span className="warn">{error}</span> : <><span className="live-dot"/> Baseline {air?.pm25.toFixed(1) ?? '—'} µg/m³</>}</div>
-    </header>
-
     <div className="chart-grid">
       <article className="chart-card concentration-chart">
         <div className="chart-title"><div><span>01 / CONCENTRATION TREND</span><h2>Baseline → moss → moss + algae</h2></div><p>Hover or tap to isolate algae’s incremental effect.</p></div>
