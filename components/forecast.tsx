@@ -30,8 +30,9 @@ export function Forecast({onApplySchedule}:{onApplySchedule:(fullPowerHoursPerDa
       if (!active) return;
       const now = Date.now() - 3.6e6;
       const upcoming = data.filter(p => new Date(p.time).getTime() >= now).slice(0, 72);
+      if (!upcoming.length) throw new Error('No upcoming forecast values were returned.');
       setPoints(upcoming);
-      setThreshold(current => current ?? Math.round(percentile(upcoming.map(p => p.pm25), .7)));
+      setThreshold(Math.max(1, Math.round(percentile(upcoming.map(p => p.pm25), .7))));
     }).catch(reason => {if (active) {setPoints([]); setError(reason.message)}}).finally(() => {if (active) setLoading(false)});
     return () => {active = false};
   }, [site]);

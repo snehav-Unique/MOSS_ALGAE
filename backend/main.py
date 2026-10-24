@@ -7,12 +7,21 @@ import threading
 import time
 import json
 import math
+import hmac
 from datetime import datetime, timezone
+from pathlib import Path
 import httpx
-from fastapi import FastAPI, HTTPException
+from dotenv import load_dotenv
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, model_validator
 from typing import Literal, Optional
+
+try:
+    import firebase_admin
+    from firebase_admin import credentials, firestore
+except ImportError:
+    firebase_admin = credentials = firestore = None
 
 import sys
 from pathlib import Path
@@ -21,6 +30,11 @@ from pathlib import Path
 _backend_dir = str(Path(__file__).resolve().parent)
 if _backend_dir not in sys.path:
     sys.path.insert(0, _backend_dir)
+
+# Load local server-only settings when the API is started from either the
+# repository root or backend directory. Real service environment variables
+# retain precedence over values in this file.
+load_dotenv(Path(__file__).resolve().parents[1] / '.env')
 
 try:
     import serial
@@ -55,32 +69,106 @@ def load_env_file(path):
 load_env_file(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '.env'))
 
 app=FastAPI(title='MOSS–ALGAE INDIA',version='0.1.0')
-app.add_middleware(CORSMiddleware,allow_origins=['*'],allow_methods=['GET','POST'],allow_headers=['Content-Type'])
+app.add_middleware(CORSMiddleware,allow_origins=['*'],allow_methods=['GET','POST'],allow_headers=['Content-Type','Authorization','X-Owner-Key'])
 
 
 @app.get('/health')
 def health(): return {'status':'ok','calibration':'not supplied'}
+
+@app.get('/api/air-quality/hourly')
+async def hourly_air_quality(latitude: float, longitude: float, past_days: int = 0, forecast_days: int = 3):
+    """Proxy Open-Meteo so browser network/CORS restrictions do not blank forecast views."""
+    if not -90 <= latitude <= 90 or not -180 <= longitude <= 180:
+        raise HTTPException(422, 'Invalid latitude or longitude')
+    if not 0 <= past_days <= 92 or not 0 <= forecast_days <= 7 or past_days + forecast_days == 0:
+        raise HTTPException(422, 'past_days must be 0-92 and forecast_days must be 0-7')
+    params = {
+        'latitude': latitude,
+        'longitude': longitude,
+        'hourly': 'pm2_5,us_aqi',
+        'past_days': past_days,
+        'forecast_days': forecast_days,
+        'timezone': 'GMT',
+        'timeformat': 'unixtime',
+    }
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            response = await client.get('https://air-quality-api.open-meteo.com/v1/air-quality', params=params)
+            response.raise_for_status()
+        hourly = response.json().get('hourly', {})
+        times, pm25_values = hourly.get('time', []), hourly.get('pm2_5', [])
+        aqi_values = hourly.get('us_aqi', [])
+        if not times or len(times) != len(pm25_values):
+            raise ValueError('Open-Meteo returned no hourly PM2.5 series')
+        points = []
+        for index, (timestamp, pm25) in enumerate(zip(times, pm25_values)):
+            if pm25 is None or not math.isfinite(float(pm25)):
+                continue
+            aqi = aqi_values[index] if index < len(aqi_values) else None
+            points.append({
+                'time': datetime.fromtimestamp(int(timestamp), timezone.utc).isoformat().replace('+00:00', 'Z'),
+                'pm25': float(pm25),
+                'aqi': float(aqi) if aqi is not None and math.isfinite(float(aqi)) else None,
+            })
+        if not points:
+            raise ValueError('Open-Meteo returned no usable hourly PM2.5 values')
+        return {'source': 'Open-Meteo CAMS', 'points': points}
+    except (httpx.HTTPError, KeyError, TypeError, ValueError, OverflowError) as error:
+        raise HTTPException(502, 'Open-Meteo forecast is temporarily unavailable') from error
 
 @app.get('/api/observations')
 async def observations():
     checked=datetime.now(timezone.utc).isoformat()
     key=os.getenv('OPENAQ_API_KEY')
     ids=[v for v in os.getenv('OPENAQ_LOCATION_IDS','').split(',') if v.isdigit()][:20]
-    if not key or not ids:
-        return {'status':'OpenAQ configuration required','observations':[],'checked_at':checked,'source':'https://api.openaq.org/v3'}
+    if not key:
+        return {'status':'OpenAQ API key required','observations':[],'checked_at':checked,'source':'https://api.openaq.org/v3'}
     out=[]
     try:
         async with httpx.AsyncClient(timeout=20) as client:
-            for id in ids:
-                meta=await client.get(f'https://api.openaq.org/v3/locations/{id}',headers={'X-API-Key':key});meta.raise_for_status()
-                location=meta.json()['results'][0]
+            locations=[]
+            if not ids:
+                latitude=os.getenv('OPENAQ_LATITUDE','12.9716')
+                longitude=os.getenv('OPENAQ_LONGITUDE','77.5946')
+                radius=os.getenv('OPENAQ_RADIUS_METERS','25000')
+                nearby=await client.get(
+                    'https://api.openaq.org/v3/locations',
+                    params={'coordinates':f'{latitude},{longitude}','radius':radius,'limit':20},
+                    headers={'X-API-Key':key},
+                )
+                nearby.raise_for_status()
+                locations=[location for location in nearby.json().get('results',[]) if location.get('id')][:20]
+                ids=[str(location['id']) for location in locations]
+            else:
+                for id in ids:
+                    meta=await client.get(f'https://api.openaq.org/v3/locations/{id}',headers={'X-API-Key':key});meta.raise_for_status()
+                    locations.append(meta.json()['results'][0])
+
+            async def latest_for(location):
+                location_id=location['id']
                 sensors={s['id']:s['parameter'] for s in location.get('sensors',[])}
-                r=await client.get(f'https://api.openaq.org/v3/locations/{id}/latest',headers={'X-API-Key':key});r.raise_for_status()
+                r=await client.get(f'https://api.openaq.org/v3/locations/{location_id}/latest',headers={'X-API-Key':key});r.raise_for_status()
+                rows=[]
                 for row in r.json().get('results',[]):
-                    out.append({**row,'parameter':sensors.get(row.get('sensorsId')),'location_name':location.get('name'),'provider':location.get('provider'),'source_url':f'https://api.openaq.org/v3/locations/{id}/latest','retrieved_at':checked})
+                    rows.append({**row,'parameter':sensors.get(row.get('sensorsId')),'location_name':location.get('name'),'provider':location.get('provider'),'source_url':f'https://api.openaq.org/v3/locations/{location_id}/latest','retrieved_at':checked})
+                return rows
+
+            results=await asyncio.gather(*(latest_for(location) for location in locations),return_exceptions=True)
+            failures=[]
+            for result in results:
+                if isinstance(result, Exception): failures.append(result)
+                else: out.extend(result)
+            if locations and len(failures) == len(locations):
+                first=failures[0]
+                if isinstance(first,httpx.HTTPStatusError): raise first
+                raise httpx.RequestError('All OpenAQ station requests failed')
+    except httpx.HTTPStatusError as error:
+        if error.response.status_code in (401,403):
+            raise HTTPException(502,'OpenAQ rejected the configured API key')
+        raise HTTPException(502,'OpenAQ upstream unavailable or invalid response; no replacement readings generated')
     except (httpx.HTTPError,KeyError,ValueError):
         raise HTTPException(502,'OpenAQ upstream unavailable or invalid response; no replacement readings generated')
-    return {'status':'Timestamped observations available' if out else 'No observations returned','observations':out,'checked_at':checked,'note':'Check measurement time before use; latest may be stale. No interpolation or AQI conversion.'}
+    return {'status':'Timestamped observations available' if out else ('No nearby OpenAQ stations found' if not ids else 'No observations returned'),'observations':out,'checked_at':checked,'note':'Check measurement time before use; latest may be stale. No interpolation or AQI conversion.'}
 
 class Capture(BaseModel):
     pollutant: str
@@ -327,24 +415,94 @@ async def assistant(req: AssistantRequest):
     except AssistantUnavailable as e:
         raise HTTPException(503, str(e))
 
-# --- CITIZEN SUGGESTIONS (in-memory; resets when the API restarts) ---
+# --- CITIZEN SUGGESTIONS (durable Firestore storage; owner-only reads) ---
 class Suggestion(BaseModel):
     lat: float = Field(ge=12.6, le=13.4)
     lng: float = Field(ge=77.3, le=77.9)
     reason: str = Field(min_length=3, max_length=280)
 
-suggestions: list = []
+FIREBASE_APP_NAME = 'moss-algae-suggestions'
+SUGGESTIONS_COLLECTION = 'pod_suggestions'
+_firestore_client = None
+_firestore_lock = threading.Lock()
+
+def suggestion_store():
+    global _firestore_client
+    if _firestore_client is not None:
+        return _firestore_client
+    if firebase_admin is None:
+        raise HTTPException(503, 'Firebase Admin is not installed on the API service')
+    project_id = os.getenv('FIREBASE_PROJECT_ID', '').strip()
+    client_email = os.getenv('FIREBASE_CLIENT_EMAIL', '').strip()
+    private_key = os.getenv('FIREBASE_PRIVATE_KEY', '').replace('\\n', '\n').strip()
+    if not project_id:
+        raise HTTPException(503, 'Firebase is not configured: FIREBASE_PROJECT_ID is missing')
+    with _firestore_lock:
+        if _firestore_client is not None:
+            return _firestore_client
+        try:
+            app = firebase_admin.get_app(FIREBASE_APP_NAME)
+        except ValueError:
+            if client_email and private_key:
+                credential = credentials.Certificate({
+                    'type': 'service_account',
+                    'project_id': project_id,
+                    'private_key_id': os.getenv('FIREBASE_PRIVATE_KEY_ID', 'configured-in-environment'),
+                    'private_key': private_key,
+                    'client_email': client_email,
+                    'client_id': os.getenv('FIREBASE_CLIENT_ID', ''),
+                    'auth_uri': 'https://accounts.google.com/o/oauth2/auth',
+                    'token_uri': 'https://oauth2.googleapis.com/token',
+                    'auth_provider_x509_cert_url': 'https://www.googleapis.com/oauth2/v1/certs',
+                    'client_x509_cert_url': f'https://www.googleapis.com/robot/v1/metadata/x509/{client_email.replace("@", "%40")}',
+                })
+            elif os.getenv('GOOGLE_APPLICATION_CREDENTIALS'):
+                credential = credentials.ApplicationDefault()
+            else:
+                raise HTTPException(503, 'Firebase service-account credentials are not configured')
+            app = firebase_admin.initialize_app(credential, {'projectId': project_id}, name=FIREBASE_APP_NAME)
+        _firestore_client = firestore.client(app=app)
+    return _firestore_client
+
+def owner_only(authorization: Optional[str] = Header(default=None), x_owner_key: Optional[str] = Header(default=None)):
+    expected = os.getenv('OWNER_DASHBOARD_KEY', '').strip()
+    if not expected:
+        raise HTTPException(503, 'Owner dashboard access is not configured')
+    supplied = x_owner_key or (authorization[7:] if authorization and authorization.startswith('Bearer ') else '')
+    if not supplied or not hmac.compare_digest(supplied, expected):
+        raise HTTPException(401, 'Invalid owner access key', headers={'WWW-Authenticate': 'Bearer'})
+
+def nearest_pod(lat: float, lng: float) -> dict:
+    def distance(site):
+        lat1, lat2 = math.radians(lat), math.radians(site['lat'])
+        dlat, dlng = lat2 - lat1, math.radians(site['lng'] - lng)
+        value = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlng / 2) ** 2
+        return 6371 * 2 * math.asin(math.sqrt(value))
+    site = min(SITES, key=distance)
+    return {'id': site['id'], 'name': site['name'], 'distance_km': round(distance(site), 2)}
 
 @app.post('/api/suggestions')
 def add_suggestion(s: Suggestion):
-    entry = {**s.model_dump(), 'received_at': datetime.now(timezone.utc).isoformat()}
-    suggestions.append(entry)
-    del suggestions[:-200]
-    return {'status': 'ok', 'count': len(suggestions)}
+    entry = {**s.model_dump(), 'received_at': datetime.now(timezone.utc).isoformat(), 'nearest_pod': nearest_pod(s.lat, s.lng)}
+    try:
+        reference = suggestion_store().collection(SUGGESTIONS_COLLECTION).document()
+        reference.set(entry)
+    except HTTPException:
+        raise
+    except Exception as error:
+        raise HTTPException(502, 'Could not store the suggestion in Firebase') from error
+    return {'status': 'ok', 'id': reference.id}
 
 @app.get('/api/suggestions')
-def list_suggestions():
-    return {'suggestions': suggestions, 'note': 'Stored in memory for this API instance only.'}
+def list_suggestions(_: None = Depends(owner_only)):
+    try:
+        documents = suggestion_store().collection(SUGGESTIONS_COLLECTION).order_by('received_at', direction='DESCENDING').limit(500).stream()
+        suggestions = [{'id': document.id, **document.to_dict()} for document in documents]
+    except HTTPException:
+        raise
+    except Exception as error:
+        raise HTTPException(502, 'Could not read suggestions from Firebase') from error
+    return {'suggestions': suggestions, 'count': len(suggestions), 'storage': 'Firebase Firestore'}
 
 # --- REAL-TIME CHAMBER SENSOR TELEMETRY (MQ-135 & DHT22) ---
 class SensorReading(BaseModel):

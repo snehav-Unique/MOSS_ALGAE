@@ -1,13 +1,12 @@
 'use client';
 
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {Activity, ArrowDown, BarChart3, Bell, Bus, CalendarClock, Calculator, CheckCircle2, Cpu, Crosshair, Download, Droplets, FileSpreadsheet, Flame, FlaskConical, GraduationCap, Home, Hospital, LoaderCircle, MapPin, MapPinned, Play, Radio, RefreshCw, Send, ShieldCheck, Square, Wind, X, Zap} from 'lucide-react';
+import {Activity, ArrowDown, BarChart3, Bell, Bus, CalendarClock, Calculator, CheckCircle2, Cpu, Crosshair, Download, Droplets, FileSpreadsheet, FlaskConical, GraduationCap, Home, Hospital, LoaderCircle, MapPin, MapPinned, Play, Radio, RefreshCw, Send, ShieldCheck, Square, Wind, X, Zap} from 'lucide-react';
 
 import {Area, AreaChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis} from 'recharts';
 import {API, Air, CANDIDATE_SITES, CandidateSite, WHO_PM25_24H, combinedStageEfficiency, fetchCurrentAir, modelLocally, pmBand} from '../lib/air';
 import {RECEPTOR_LABEL, receptorTotal, useExposure} from '../components/exposure';
 import {Forecast} from '../components/forecast';
-import {Hotspots} from '../components/hotspots';
 import {Planner} from '../components/planner';
 import {ReplayFrame, TwinReplay} from '../components/replay';
 import {Assistant, PlannerState} from '../components/assistant';
@@ -16,7 +15,27 @@ import {MAP_OPTIONS} from '../components/use-leaflet-map';
 import {AnimatedNumber, LiveProvider, LiveStrip, Sparkline, Trend, ago, useLive, useNow} from '../components/live';
 
 const INITIAL_SITE = {lat: 12.9716, lng: 77.5946};
-type NetworkSite = CandidateSite & Air & {assigned:number; rank:number};
+const MEASURED_SYSTEM_EFFICIENCY = 79;
+type MeasuredAir = {
+  pm25:number;
+  pm10:number|null;
+  no2:number|null;
+  no2Unit:string|null;
+  co:number|null;
+  coUnit:string|null;
+  time:string;
+  stationName:string;
+  stationDistanceKm:number;
+};
+type NetworkSite = CandidateSite & MeasuredAir & {assigned:number; rank:number};
+type OpenAQObservation = {
+  value?:number;
+  parameter?:{name?:string;displayName?:string;units?:string};
+  coordinates?:{latitude?:number;longitude?:number};
+  datetime?:{utc?:string;local?:string};
+  locationsId?:number;
+  location_name?:string;
+};
 
 export default function Page() {
   return <LiveProvider><MossExperience/></LiveProvider>;
@@ -31,8 +50,64 @@ function HomeLive() {
   return <div className="home-live"><span><i className="live-pulse"/> BENGALURU RIGHT NOW</span><strong><AnimatedNumber value={city.avg}/><small> µg/m³ avg PM2.5</small></strong><Trend change={city.change1h}/><Sparkline values={city.series24h} width={180} height={34} color="#dbe5b7"/><p>{aboveWho} of {city.sites.length} areas above the WHO guideline · worst: {worst.name} ({worst.pm25.toFixed(0)})</p><small>Open-Meteo model · updated {ago(cityFetchedAt, now)}</small></div>;
 }
 
+function distanceKm(a:{lat:number;lng:number},b:{lat:number;lng:number}) {
+  const radians=(degrees:number)=>degrees*Math.PI/180;
+  const dLat=radians(b.lat-a.lat);
+  const dLng=radians(b.lng-a.lng);
+  const latitudeA=radians(a.lat);
+  const latitudeB=radians(b.lat);
+  const haversine=Math.sin(dLat/2)**2+Math.cos(latitudeA)*Math.cos(latitudeB)*Math.sin(dLng/2)**2;
+  return 6371*2*Math.atan2(Math.sqrt(haversine),Math.sqrt(1-haversine));
+}
+
+function pollutantName(parameter:OpenAQObservation['parameter']) {
+  const name=(parameter?.name||parameter?.displayName||'').toLowerCase().replace(/[\s._-]/g,'');
+  if(name==='pm25'||name==='pm2,5')return 'pm25';
+  if(name==='pm10')return 'pm10';
+  if(name==='no2'||name==='nitrogendioxide')return 'no2';
+  if(name==='co'||name==='carbonmonoxide')return 'co';
+  return null;
+}
+
+function particulateMicrograms(value:number,unit:string|undefined) {
+  const normalized=(unit||'').toLowerCase().replace(/μ/g,'µ').replace(/\s/g,'');
+  if(normalized.includes('mg/m'))return value*1000;
+  if(normalized.includes('ng/m'))return value/1000;
+  if(normalized.includes('µg/m')||normalized.includes('ug/m'))return value;
+  return null;
+}
+
+function mapOpenAQToSites(observations:OpenAQObservation[]) {
+  type Reading={value:number;unit:string;time:string};
+  type Station={name:string;lat:number;lng:number;readings:Partial<Record<'pm25'|'pm10'|'no2'|'co',Reading>>};
+  const stations=new Map<string,Station>();
+  observations.forEach((observation,index)=>{
+    const pollutant=pollutantName(observation.parameter);
+    const lat=Number(observation.coordinates?.latitude);
+    const lng=Number(observation.coordinates?.longitude);
+    const rawValue=Number(observation.value);
+    if(!pollutant||!Number.isFinite(lat)||!Number.isFinite(lng)||!Number.isFinite(rawValue))return;
+    const unit=observation.parameter?.units||'';
+    const converted=pollutant==='pm25'||pollutant==='pm10'?particulateMicrograms(rawValue,unit):rawValue;
+    if(converted==null||!Number.isFinite(converted))return;
+    const key=String(observation.locationsId??`${lat},${lng},${observation.location_name??index}`);
+    const station=stations.get(key)??{name:observation.location_name||`OpenAQ station ${key}`,lat,lng,readings:{}};
+    const time=observation.datetime?.utc||observation.datetime?.local||'';
+    const existing=station.readings[pollutant];
+    if(!existing||!existing.time||time>existing.time)station.readings[pollutant]={value:converted,unit:pollutant==='pm25'||pollutant==='pm10'?'µg/m³':unit,time};
+    stations.set(key,station);
+  });
+  const withPm25=[...stations.values()].filter(station=>station.readings.pm25);
+  return CANDIDATE_SITES.map(site=>{
+    const nearest=withPm25.reduce<Station|null>((best,station)=>!best||distanceKm(site,station)<distanceKm(site,best)?station:best,null);
+    if(!nearest)return null;
+    const pm25=nearest.readings.pm25!;
+    return {...site,pm25:pm25.value,pm10:nearest.readings.pm10?.value??null,no2:nearest.readings.no2?.value??null,no2Unit:nearest.readings.no2?.unit||null,co:nearest.readings.co?.value??null,coUnit:nearest.readings.co?.unit||null,time:pm25.time,stationName:nearest.name,stationDistanceKm:distanceKm(site,nearest)};
+  }).filter((site):site is CandidateSite & MeasuredAir=>site!==null);
+}
+
 function MossExperience() {
-  const [view, setView] = useState<'home'|'twin'|'analysis'|'locations'|'sensors'|'planner'|'hotspots'|'forecast'>('home');
+  const [view, setView] = useState<'home'|'twin'|'analysis'|'locations'|'sensors'|'planner'|'forecast'>('home');
   const [replayFrame, setReplayFrame] = useState<ReplayFrame|null>(null);
   const [dutyHours, setDutyHours] = useState(24);
   const [scheduleSource, setScheduleSource] = useState<string|null>(null);
@@ -43,8 +118,10 @@ function MossExperience() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [units, setUnits] = useState(24);
-  const [efficiency, setEfficiency] = useState(42);
-  const [algaeEfficiency, setAlgaeEfficiency] = useState(28);
+  // The measured 79% applies to the complete tested chamber. Keep the
+  // unmeasured polishing-stage increment at zero to avoid double-counting it.
+  const [efficiency, setEfficiency] = useState(MEASURED_SYSTEM_EFFICIENCY);
+  const [algaeEfficiency, setAlgaeEfficiency] = useState(0);
   const [hours, setHours] = useState(8);
   const [mapsReady, setMapsReady] = useState([false, false]);
   const [mapBasesReady, setMapBasesReady] = useState([false, false]);
@@ -78,7 +155,7 @@ function MossExperience() {
   useEffect(() => {
     if (!air) { setFuturePm25(null); return; }
     const combinedEfficiency = combinedStageEfficiency(efficiency / 100, algaeEfficiency / 100);
-    const payload = {initial:air.pm25, background:air.pm25, source_ug_h:0, ventilation_m3_h:12000, volume_m3:250000, cadr_m3_h:500 * combinedEfficiency * units, hours, calibration_reference:'Illustrative two-stage moss and algae assumptions v0.2'};
+    const payload = {initial:air.pm25, background:air.pm25, source_ug_h:0, ventilation_m3_h:12000, volume_m3:250000, cadr_m3_h:500 * combinedEfficiency * units, hours, calibration_reference:'User-supplied measured chamber efficiency: 79%; separate algae-stage increment not measured'};
     const fallback = modelLocally(payload.initial, payload.background, payload.ventilation_m3_h, payload.cadr_m3_h, payload.volume_m3, payload.hours);
     const controller = new AbortController();
     fetch(`${API}/api/twin/balance`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload), signal:controller.signal})
@@ -189,7 +266,6 @@ function MossExperience() {
         <button className={view === 'twin' ? 'active' : ''} onClick={() => setView('twin')}><FlaskConical size={18}/><span>DIG TWIN</span></button>
         <button className={view === 'analysis' ? 'active' : ''} onClick={() => setView('analysis')}><BarChart3 size={18}/><span>ANALYSIS</span></button>
         <button className={view === 'locations' ? 'active' : ''} onClick={() => setView('locations')}><MapPinned size={18}/><span>LOCATIONS</span></button>
-        <button className={view === 'hotspots' ? 'active' : ''} onClick={() => setView('hotspots')}><Flame size={18}/><span>HOTSPOTS</span></button>
         <button className={view === 'planner' ? 'active' : ''} onClick={() => setView('planner')}><Calculator size={18}/><span>PLANNER</span></button>
         <button className={view === 'forecast' ? 'active' : ''} onClick={() => setView('forecast')}><CalendarClock size={18}/><span>FORECAST</span></button>
         <button className={view === 'sensors' ? 'active' : ''} onClick={() => setView('sensors')}><Radio size={18}/><span>SENSORS</span></button>
@@ -233,8 +309,8 @@ function MossExperience() {
           <div className="map-stage"><img className={`map-fallback ${mapBasesReady[1]?'hidden':''}`} src="/bengaluru-map.webp" alt="Street map of Bengaluru"/><div ref={futureMapNode} className={`map ${mapsReady[1] ? 'ready' : ''}`} aria-label="Interactive future map"/><div className="future-wash"/><div className="map-label"><Wind size={18}/> PROJECTED AIR · SYNCED</div><div className="delta">{reduction != null ? `−${reduction.toFixed(1)}%` : '—'}<small>MODELED CHANGE</small></div>{mapError&&<div className="map-status">Live tiles unavailable · local Bengaluru map active</div>}<div className="fallback-attribution">© OpenStreetMap contributors</div></div>
           <div className="data-strip controls">
             <label>UNITS <strong>{units}</strong><input type="range" min="1" max="100" value={units} onChange={e => setUnits(Number(e.target.value))}/></label>
-            <label>MOSS EFF. <strong>{efficiency}%</strong><input type="range" min="5" max="85" value={efficiency} onChange={e => setEfficiency(Number(e.target.value))}/></label>
-            <label>ALGAE EFF. <strong>{algaeEfficiency}%</strong><input type="range" min="1" max="70" value={algaeEfficiency} onChange={e => setAlgaeEfficiency(Number(e.target.value))}/></label>
+            <label>MEASURED EFF. <strong>{efficiency}%</strong><input type="range" min="5" max="85" value={efficiency} onChange={e => setEfficiency(Number(e.target.value))}/></label>
+            <label>ADDITIONAL ALGAE EFF. <strong>{algaeEfficiency}%</strong><input type="range" min="0" max="70" value={algaeEfficiency} onChange={e => setAlgaeEfficiency(Number(e.target.value))}/></label>
             <label>HORIZON <strong>{hours}h</strong><input type="range" min="1" max="24" value={hours} onChange={e => setHours(Number(e.target.value))}/></label>
           </div>
         </article>
@@ -247,7 +323,7 @@ function MossExperience() {
       ]}/>
       <TwinReplay site={site} units={units} mossEfficiency={efficiency} algaeEfficiency={algaeEfficiency} hours={hours} onFrame={setReplayFrame}/>
       <footer className="model-note"><span>MODEL 0.2 / TWO-STAGE</span><p>The future view models moss followed by algae in series. Combined efficiency is 1 − (1 − moss efficiency) × (1 − algae efficiency), preventing double-counting. Both efficiencies require pollutant-specific measurement and field calibration.</p><span>{air?.time ? `DATA ${air.time.replace('T', ' ')}` : 'AWAITING DATA'}</span></footer>
-    </section> : view === 'analysis' ? <Analysis air={air} loading={loading} error={error} units={units} setUnits={setUnits} efficiency={efficiency} setEfficiency={setEfficiency} algaeEfficiency={algaeEfficiency} setAlgaeEfficiency={setAlgaeEfficiency} hours={hours} setHours={setHours}/> : view === 'locations' ? <Locations totalUnits={units} setTotalUnits={setUnits} mossEfficiency={efficiency} algaeEfficiency={algaeEfficiency} hours={hours}/> : view === 'hotspots' ? <Hotspots/> : view === 'planner' ? <Planner mossEfficiency={efficiency} algaeEfficiency={algaeEfficiency} dutyHours={dutyHours} setDutyHours={value => {setDutyHours(value); setScheduleSource(null)}} scheduleSource={scheduleSource} planner={plannerState} onStateChange={setPlannerState}/> : view === 'forecast' ? <Forecast onApplySchedule={(value, label) => {setDutyHours(value); setScheduleSource(label); setView('planner')}}/> : <ChamberSensors mossEfficiency={efficiency} algaeEfficiency={algaeEfficiency} onApplyEfficiency={eff => { setEfficiency(Math.round(eff)); setView('twin'); }} />}
+    </section> : view === 'analysis' ? <Analysis air={air} loading={loading} error={error} units={units} setUnits={setUnits} efficiency={efficiency} setEfficiency={setEfficiency} algaeEfficiency={algaeEfficiency} setAlgaeEfficiency={setAlgaeEfficiency} hours={hours} setHours={setHours}/> : view === 'locations' ? <Locations totalUnits={units} setTotalUnits={setUnits} mossEfficiency={efficiency} algaeEfficiency={algaeEfficiency} hours={hours}/> : view === 'planner' ? <Planner mossEfficiency={efficiency} algaeEfficiency={algaeEfficiency} dutyHours={dutyHours} setDutyHours={value => {setDutyHours(value); setScheduleSource(null)}} scheduleSource={scheduleSource} planner={plannerState} onStateChange={setPlannerState}/> : view === 'forecast' ? <Forecast onApplySchedule={(value, label) => {setDutyHours(value); setScheduleSource(label); setView('planner')}}/> : <ChamberSensors mossEfficiency={efficiency} algaeEfficiency={algaeEfficiency} onApplyEfficiency={eff => { setEfficiency(Math.round(eff)); setAlgaeEfficiency(0); setView('twin'); }} />}
 
     {view !== 'home' && <Assistant planner={plannerState}/>}
   </main>;
@@ -255,8 +331,8 @@ function MossExperience() {
 
 function Data({label, value, detail}:{label:string; value:string; detail:string}) {return <div className="data"><span>{label}</span><strong>{value}</strong><small>{detail}</small></div>}
 
-function allocateUnits(sites:Array<CandidateSite & Air>, total:number):NetworkSite[] {
-  const ranked = [...sites].sort((a,b) => b.aqi - a.aqi || b.pm25 - a.pm25);
+function allocateUnits(sites:Array<CandidateSite & MeasuredAir>, total:number):NetworkSite[] {
+  const ranked = [...sites].sort((a,b) => b.pm25 - a.pm25 || a.stationDistanceKm - b.stationDistanceKm);
   if (!ranked.length) return [];
   const assignments:number[] = ranked.map((_,index) => total >= ranked.length || index < total ? 1 : 0);
   let remaining = Math.max(0,total - assignments.reduce((sum,value) => sum + value,0));
@@ -268,7 +344,7 @@ function allocateUnits(sites:Array<CandidateSite & Air>, total:number):NetworkSi
 }
 
 function Locations({totalUnits,setTotalUnits,mossEfficiency,algaeEfficiency,hours}:{totalUnits:number;setTotalUnits:(value:number)=>void;mossEfficiency:number;algaeEfficiency:number;hours:number}) {
-  const [readings,setReadings] = useState<Array<CandidateSite & Air>>([]);
+  const [readings,setReadings] = useState<Array<CandidateSite & MeasuredAir>>([]);
   const [selectedId,setSelectedId] = useState(CANDIDATE_SITES[0].id);
   const [logSiteId,setLogSiteId] = useState<string|null>(null);
   const [co2Readings,setCo2Readings] = useState<Record<string,number>>({});
@@ -301,18 +377,20 @@ function Locations({totalUnits,setTotalUnits,mossEfficiency,algaeEfficiency,hour
   };
   const refresh = useCallback(async () => {
     setLoading(true);setError('');
-    const results = await Promise.all(CANDIDATE_SITES.map(async site => {
-      try {
-        const response=await fetch(`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${site.lat}&longitude=${site.lng}&current=pm2_5,pm10,nitrogen_dioxide,carbon_monoxide,us_aqi&timezone=auto`);
-        if(!response.ok) return null;
-        const data=await response.json();
-        return {...site,pm25:Number(data.current?.pm2_5),pm10:Number(data.current?.pm10),no2:Number(data.current?.nitrogen_dioxide),co:Number(data.current?.carbon_monoxide),aqi:Number(data.current?.us_aqi),time:String(data.current?.time??'')};
-      } catch {return null}
-    }));
-    const valid=results.filter((site):site is CandidateSite & Air => Boolean(site&&Number.isFinite(site.pm25)&&Number.isFinite(site.co)&&Number.isFinite(site.aqi)));
-    setReadings(valid);setLoading(false);
-    if(!valid.length)setError('No candidate air-quality readings are currently available.');
-    else setSelectedId(current => valid.some(site=>site.id===current)?current:valid[0].id);
+    try {
+      const response=await fetch(`${API}/api/observations`);
+      const data=await response.json();
+      if(!response.ok)throw new Error(data?.detail||'OpenAQ backend request failed.');
+      const mapped=mapOpenAQToSites(Array.isArray(data?.observations)?data.observations:[]);
+      if(!mapped.length)throw new Error(data?.status||'No OpenAQ stations with valid PM2.5 measurements were returned.');
+      setReadings(mapped);
+      setSelectedId(current=>mapped.some(site=>site.id===current)?current:mapped[0].id);
+    } catch(reason:any) {
+      setReadings([]);
+      setError(reason?.message||'Unable to load measured OpenAQ station data from the backend.');
+    } finally {
+      setLoading(false);
+    }
   },[]);
   useEffect(()=>{refresh();const timer=setInterval(refresh,5*60*1000);return()=>clearInterval(timer)},[refresh]);
   const network=useMemo(()=>allocateUnits(readings,totalUnits),[readings,totalUnits]);
@@ -404,27 +482,27 @@ function Locations({totalUnits,setTotalUnits,mossEfficiency,algaeEfficiency,hour
   const projected=selected?modelLocally(selected.pm25,selected.pm25,12000,selectedCadr,250000,hours):null;
   const reduction=selected&&projected!=null&&selected.pm25>0?(1-projected/selected.pm25)*100:null;
   return <section className="locations-view">
-    <header className="locations-header"><div><p className="kicker">POD NETWORK / SUGGESTED DEPLOYMENT</p><h1>Place units where the current signal is highest.</h1><p>Candidate areas are ranked by current US AQI, then PM2.5. The allocation is a planning recommendation—not a record of installed plants.</p></div><button onClick={refresh} disabled={loading}>{loading?<LoaderCircle className="spin"/>:<Radio/>}{loading?'Reading network…':'Refresh air data'}</button></header>
-    <div className="network-summary"><label><span>TOTAL PODS TO ALLOCATE</span><strong>{totalUnits} / 100</strong><input type="range" min="1" max="100" value={totalUnits} onChange={event=>setTotalUnits(Number(event.target.value))}/></label><div><span>AREAS WITH PODS</span><strong>{network.filter(site=>site.assigned>0).length}</strong><small>One map anchor per allocated area</small></div><div><span>COMBINED MEDIA EFFICIENCY</span><strong>{(combinedEfficiency*100).toFixed(1)}%</strong><small>Moss {mossEfficiency}% → algae {algaeEfficiency}%</small></div><div><span>ALLOCATION RULE</span><strong>AQI priority</strong><small>Count badges update with the total</small></div></div>
+    <header className="locations-header"><div><p className="kicker">POD NETWORK / OPENAQ MEASUREMENTS</p><h1>Place units near the strongest measured PM signal.</h1><p>Each candidate area is mapped to its nearest OpenAQ station with a current PM2.5 observation, then ranked by measured PM2.5. The station distance and timestamp remain visible.</p></div><button onClick={refresh} disabled={loading}>{loading?<LoaderCircle className="spin"/>:<Radio/>}{loading?'Reading OpenAQ…':'Refresh measurements'}</button></header>
+    <div className="network-summary"><label><span>TOTAL PODS TO ALLOCATE</span><strong>{totalUnits} / 100</strong><input type="range" min="1" max="100" value={totalUnits} onChange={event=>setTotalUnits(Number(event.target.value))}/></label><div><span>AREAS WITH PODS</span><strong>{network.filter(site=>site.assigned>0).length}</strong><small>One map anchor per allocated area</small></div><div><span>COMBINED MEDIA EFFICIENCY</span><strong>{(combinedEfficiency*100).toFixed(1)}%</strong><small>Measured chamber {mossEfficiency}% → additional algae {algaeEfficiency}%</small></div><div><span>ALLOCATION RULE</span><strong>Measured PM2.5</strong><small>Nearest OpenAQ station per area</small></div></div>
     <Guide title="How pods are placed" columns={4} items={[
-      {title:'Map anchors', body:'One pin per area; the number is how many pods are allocated there. Click a pin for its pod log. The dashed circle and dots around the selected area are nearby schools, clinics and bus stops.'},
-      {title:'Allocation rule', body:'Every area gets at least one pod, then the rest are shared in proportion to current PM2.5, highest-AQI areas first. Use the Planner tab for budget- and exposure-aware selection.'},
-      {title:'Combined efficiency', body:'Moss followed by algae, in series. Set each stage on the Digital Twin or Analysis tab.', formula:'1 − (1 − moss) × (1 − algae)'},
-      {title:'Who breathes here', body:'Schools, hospitals/clinics and bus stops mapped in OpenStreetMap within 500 m. They show who benefits; counts depend on how well the area is mapped and are not population numbers.'},
+      {title:'Station mapping', body:'Each area uses the nearest OpenAQ station with PM2.5 data. The station name, distance and measurement time stay visible; the value is not interpolated to the area anchor.'},
+      {title:'Allocation rule', body:'Every area gets at least one pod, then the rest are shared in proportion to measured PM2.5. Use the Planner tab for budget- and exposure-aware selection.'},
+      {title:'Combined efficiency', body:'The measured chamber baseline is followed by any separately measured algae increment, in series.', formula:'1 − (1 − chamber) × (1 − algae increment)'},
+      {title:'Who breathes here', body:'Schools, hospitals/clinics and bus stops mapped in OpenStreetMap within 500 m. They show nearby receptors; counts are not population numbers.'},
     ]}/>
     {error&&<div className="network-error">{error}</div>}
     <div className="locations-grid">
-      <article className="network-panel"><div className="panel-heading"><div><span>OPENSTREETMAP / AREA ALLOCATION</span><h2>Area-specific pod anchors</h2></div><p>Each anchor represents one area; its badge is the number of pods allocated there.</p></div><div className="locations-map"><img className={`locations-map-fallback ${locationsBaseReady?'hidden':''}`} src="/bengaluru-map.webp" alt="Street map of Bengaluru"/><div ref={locationsMapNode} className={`locations-leaflet ${locationsMapReady?'ready':''}`} aria-label="OpenStreetMap showing area pod allocations"/>{locationsMapError&&<div className="map-status">Live tiles unavailable · local Bengaluru map active</div>}{logSite&&<aside className="pod-log-popover" role="dialog" aria-label={`${logSite.name} pod log`}><button className="pod-log-close" onClick={()=>setLogSiteId(null)} aria-label="Close pod log"><X size={18}/></button><span>AREA POD LOG</span><h3>{logSite.name}</h3><p>{logSite.assigned} allocated pods · area AQI {Math.round(logSite.aqi)}</p><div className="pod-log-list">{podLogs.map((pod,index)=><div className="pod-log-row" key={pod.id}><b>{pod.id}</b><span>{pod.status}</span><small>CO {logSite.co.toFixed(0)} µg/m³ area feed</small><small>{co2Readings[logSite.id]!=null?`CO₂ ${co2Readings[logSite.id]} ppm area sensor`:'CO₂ sensor pending'}</small><em>Allocation log {String(index+1).padStart(2,'0')}</em></div>)}</div></aside>}<div className="map-anchor-key"><i/><span>Area anchor · number indicates allocated pods</span></div></div><p className="network-boundary">The map intentionally uses one anchor per area. Click an anchor to inspect every pod allocated to that region; individual pods are listed in the log instead of cluttering the map.</p></article>
+      <article className="network-panel"><div className="panel-heading"><div><span>OPENSTREETMAP / AREA ALLOCATION</span><h2>Area-specific pod anchors</h2></div><p>Each anchor represents one area; its badge is the number of pods allocated there.</p></div><div className="locations-map"><img className={`locations-map-fallback ${locationsBaseReady?'hidden':''}`} src="/bengaluru-map.webp" alt="Street map of Bengaluru"/><div ref={locationsMapNode} className={`locations-leaflet ${locationsMapReady?'ready':''}`} aria-label="OpenStreetMap showing area pod allocations"/>{locationsMapError&&<div className="map-status">Live tiles unavailable · local Bengaluru map active</div>}{logSite&&<aside className="pod-log-popover" role="dialog" aria-label={`${logSite.name} pod log`}><button className="pod-log-close" onClick={()=>setLogSiteId(null)} aria-label="Close pod log"><X size={18}/></button><span>AREA POD LOG</span><h3>{logSite.name}</h3><p>{logSite.assigned} allocated pods · PM2.5 {logSite.pm25.toFixed(1)} µg/m³</p><div className="pod-log-list">{podLogs.map((pod,index)=><div className="pod-log-row" key={pod.id}><b>{pod.id}</b><span>{pod.status}</span><small>{logSite.co!=null?`CO ${logSite.co.toFixed(1)} ${logSite.coUnit||''}`:'CO unavailable at mapped station'}</small><small>{co2Readings[logSite.id]!=null?`CO₂ ${co2Readings[logSite.id]} ppm area sensor`:'CO₂ sensor pending'}</small><em>Allocation log {String(index+1).padStart(2,'0')}</em></div>)}</div></aside>}<div className="map-anchor-key"><i/><span>Area anchor · number indicates allocated pods</span></div></div><p className="network-boundary">Area anchors are mapped to measured station data; they are not monitoring stations themselves. Click an anchor to inspect its pod allocation.</p></article>
       <article className="station-detail">{selected?<>
         <div className="station-rank"><span>PRIORITY {String(selected.rank).padStart(2,'0')}</span><strong>{selected.name}</strong><small>{selected.context}</small></div>
-        <div className="station-kpis"><div><span>CURRENT AQI</span><strong>{Math.round(selected.aqi)}</strong><small>US AQI · modeled source</small></div><div><span>ASSIGNED PODS</span><strong>{selected.assigned}</strong><small>of {totalUnits} total</small></div><div><span>PM2.5 NOW</span><strong>{selected.pm25.toFixed(1)}</strong><small>µg/m³</small></div><div><span>MODELED PM2.5</span><strong>{projected?.toFixed(1)??'—'}</strong><small>after {hours} hours</small></div></div>
-        <div className="gas-panel"><div><span>CARBON MONOXIDE / CO</span><strong>{selected.co.toFixed(0)} <small>µg/m³</small></strong><em>Live atmospheric dataset</em></div><label><span>CARBON DIOXIDE / CO₂</span><div><input type="number" min="300" max="10000" step="1" value={co2Readings[selected.id]??''} placeholder="Connect sensor" onChange={event=>recordCo2(selected.id,event.target.value)} aria-label={`CO2 sensor reading for ${selected.name}`}/><b>ppm</b></div><em>{co2Readings[selected.id]!=null?'Pod sensor reading saved locally':'Requires an NDIR sensor at this pod'}</em></label></div>
+        <div className="station-kpis"><div><span>MEASURED PM2.5</span><strong>{selected.pm25.toFixed(1)}</strong><small>µg/m³ · OpenAQ</small></div><div><span>MEASURED PM10</span><strong>{selected.pm10!=null?selected.pm10.toFixed(1):'—'}</strong><small>{selected.pm10!=null?'µg/m³':'Unavailable at station'}</small></div><div><span>ASSIGNED PODS</span><strong>{selected.assigned}</strong><small>of {totalUnits} total</small></div><div><span>MODELED PM2.5</span><strong>{projected?.toFixed(1)??'—'}</strong><small>after {hours} hours</small></div></div>
+        <div className="gas-panel"><div><span>CARBON MONOXIDE / CO</span><strong>{selected.co!=null?selected.co.toFixed(1):'—'} <small>{selected.coUnit||''}</small></strong><em>{selected.co!=null?'Measured by mapped OpenAQ station':'Unavailable at mapped station'}</em></div><label><span>CARBON DIOXIDE / CO₂</span><div><input type="number" min="300" max="10000" step="1" value={co2Readings[selected.id]??''} placeholder="Connect sensor" onChange={event=>recordCo2(selected.id,event.target.value)} aria-label={`CO2 sensor reading for ${selected.name}`}/><b>ppm</b></div><em>{co2Readings[selected.id]!=null?'Pod sensor reading saved locally':'Requires an NDIR sensor at this pod'}</em></label></div>
         <div className="receptor-panel"><span>WHO BREATHES HERE · WITHIN {exposure?.radius_m??500} M</span><div><p><GraduationCap size={18}/><strong>{selectedExposure?.school??'—'}</strong><small>Schools</small></p><p><Hospital size={18}/><strong>{selectedExposure?.health??'—'}</strong><small>Hospitals & clinics</small></p><p><Bus size={18}/><strong>{selectedExposure?.bus_stop??'—'}</strong><small>Bus stops</small></p></div><em>{exposureMode==='live'?'Live OpenStreetMap query':exposureMode==='snapshot'?`OpenStreetMap snapshot ${exposure?.retrieved_at.slice(0,10)}`:exposureMode==='loading'?'Loading receptors…':'Receptor data unavailable'} · mapped features only, not population</em></div>
-        <div className="efficiency-ring" style={{'--ring':`${Math.max(0,Math.min(100,reduction??0))}%`} as React.CSSProperties}><div><strong>{reduction!=null?`−${reduction.toFixed(1)}%`:'—'}</strong><span>local modeled change</span></div></div><div className="station-notes"><p><CheckCircle2/><span><strong>Why suggested</strong>Ranked from the current AQI/PM2.5 snapshot among the listed candidate areas.</span></p><p><Activity/><span><strong>Gas telemetry</strong>CO is supplied by Open-Meteo. CO₂ is stored only when an on-site NDIR sensor reading is entered; it is never inferred from AQI.</span></p><p><ShieldCheck/><span><strong>Health boundary</strong>No individual health outcome, dose, exposure reduction or clinical benefit is estimated.</span></p></div><div className="station-time">DATA {selected.time.replace('T',' ')} · OPEN-METEO AIR QUALITY</div>
+        <div className="efficiency-ring" style={{'--ring':`${Math.max(0,Math.min(100,reduction??0))}%`} as React.CSSProperties}><div><strong>{reduction!=null?`−${reduction.toFixed(1)}%`:'—'}</strong><span>local modeled change</span></div></div><div className="station-notes"><p><CheckCircle2/><span><strong>Mapped monitoring station</strong>{selected.stationName} · {selected.stationDistanceKm.toFixed(1)} km from the area anchor.</span></p><p><Activity/><span><strong>Measurement boundary</strong>PM and available gases come from the mapped OpenAQ station. The named area does not have its own sensor unless stated.</span></p><p><ShieldCheck/><span><strong>Health boundary</strong>No individual health outcome, dose, exposure reduction or clinical benefit is estimated.</span></p></div><div className="station-time">MEASURED {selected.time.replace('T',' ')} · OPENAQ STATION DATA</div>
       </>:<ChartEmpty/>}</article>
     </div>
-    <div className="location-table"><div className="location-row header"><span>RANK / AREA</span><span>AQI</span><span>PM2.5</span><span>CO</span><span>CO₂</span><span>NEARBY</span><span>PODS</span><span>MODEL ROLE</span></div>{network.map(site=><button className={`location-row ${site.id===selected?.id?'active':''}`} key={site.id} onClick={()=>setSelectedId(site.id)}><span><b>{String(site.rank).padStart(2,'0')}</b><strong>{site.name}</strong><small>{site.context}</small></span><span>{Math.round(site.aqi)}</span><span>{site.pm25.toFixed(1)} µg/m³</span><span>{site.co.toFixed(0)} µg/m³</span><span>{co2Readings[site.id]!=null?`${co2Readings[site.id]} ppm`:'Sensor needed'}</span><span>{exposure?`${receptorTotal(exposure.sites[site.id])} receptors`:'—'}</span><span>{site.assigned}</span><span>{site.rank<=3?'Priority cluster':'Coverage node'}</span></button>)}</div>
-    <footer className="analysis-disclaimer"><strong>RECOMMENDATION LIMIT</strong><p>Ranking a short candidate list by a current modeled snapshot is not a deployment study. Final siting requires verified monitoring data, pedestrian exposure patterns, wind and street geometry, power, access, pressure drop, maintenance capacity, land permission and field validation.</p></footer>
+    <div className="location-table"><div className="location-row header"><span>RANK / AREA</span><span>STATION</span><span>PM2.5</span><span>PM10</span><span>CO</span><span>NEARBY</span><span>PODS</span><span>MAPPING</span></div>{network.map(site=><button className={`location-row ${site.id===selected?.id?'active':''}`} key={site.id} onClick={()=>setSelectedId(site.id)}><span><b>{String(site.rank).padStart(2,'0')}</b><strong>{site.name}</strong><small>{site.context}</small></span><span><strong>{site.stationName}</strong><small>{site.stationDistanceKm.toFixed(1)} km away</small></span><span>{site.pm25.toFixed(1)} µg/m³</span><span>{site.pm10!=null?`${site.pm10.toFixed(1)} µg/m³`:'—'}</span><span>{site.co!=null?`${site.co.toFixed(1)} ${site.coUnit||''}`:'—'}</span><span>{exposure?`${receptorTotal(exposure.sites[site.id])} receptors`:'—'}</span><span>{site.assigned}</span><span>{site.rank<=3?'PM priority':'Coverage node'}</span></button>)}</div>
+    <footer className="analysis-disclaimer"><strong>MEASUREMENT LIMIT</strong><p>Values are measurements at the named OpenAQ station, not at the candidate-area anchor. Nearest-station mapping does not represent street-level variation. Final siting still requires on-site monitoring, wind and street geometry, power, access, maintenance capacity, land permission and field validation.</p></footer>
   </section>;
 }
 
@@ -476,18 +554,18 @@ function Analysis({air, loading, error, units, setUnits, efficiency, setEfficien
 
   return <section className="analysis-view">
     <header className="analysis-header">
-      <div><p className="kicker">MOSS + ALGAE / TWO-STAGE BIOFILTRATION</p><h1>Measure each stage. See the combined result.</h1><p>Compare moss alone with an algae polishing stage, then inspect the incremental concentration and particle-mass contribution without double-counting.</p></div>
+      <div><p className="kicker">MOSS + ALGAE / TWO-STAGE BIOFILTRATION</p><h1>Use the measured 79% result.</h1><p>The tested chamber efficiency is the baseline. Add a separate algae-stage value only when that incremental stage has its own measurement.</p></div>
       <div className="analysis-status">{loading ? <><LoaderCircle className="spin" size={18}/> Loading baseline</> : error ? <span className="warn">{error}</span> : <><span className="live-dot"/> Baseline {air?.pm25.toFixed(1) ?? '—'} µg/m³</>}</div>
     </header>
 
-    <div className="bio-process" aria-label="Two-stage biofiltration process"><div><span>STAGE 01</span><strong>Moss matrix</strong><small>Captures a measured fraction of inlet PM2.5</small></div><i>→</i><div className="algae-stage"><span>STAGE 02</span><strong>Microalgae polishing</strong><small>Treats only the fraction remaining after moss</small></div><i>→</i><div><span>COMBINED</span><strong>{(combinedEfficiency * 100).toFixed(1)}% efficiency</strong><small>Series equation; not a sum of efficiencies</small></div></div>
+    <div className="bio-process" aria-label="Two-stage biofiltration process"><div><span>MEASURED BASELINE</span><strong>Tested chamber</strong><small>{efficiency}% single-pass efficiency supplied from the experiment</small></div><i>→</i><div className="algae-stage"><span>OPTIONAL INCREMENT</span><strong>Separate algae polishing</strong><small>Treats only the fraction remaining after the measured chamber result</small></div><i>→</i><div><span>COMBINED</span><strong>{(combinedEfficiency * 100).toFixed(1)}% efficiency</strong><small>Series equation; not a sum of efficiencies</small></div></div>
 
     <div className="analysis-controls five" aria-label="Model assumptions">
       <label><span>MOSS UNITS</span><strong>{units}</strong><input type="range" min="1" max="100" value={units} onChange={event => setUnits(Number(event.target.value))}/></label>
-      <label><span>MEASURED MOSS EFFICIENCY</span><strong>{efficiency}%</strong><input type="range" min="5" max="85" value={efficiency} onChange={event => setEfficiency(Number(event.target.value))}/></label>
-      <label><span>MEASURED ALGAE EFFICIENCY</span><strong>{algaeEfficiency}%</strong><input type="range" min="1" max="70" value={algaeEfficiency} onChange={event => setAlgaeEfficiency(Number(event.target.value))}/></label>
+      <label><span>MEASURED CHAMBER EFFICIENCY</span><strong>{efficiency}%</strong><input type="range" min="5" max="85" value={efficiency} onChange={event => setEfficiency(Number(event.target.value))}/></label>
+      <label><span>ADDITIONAL ALGAE-STAGE EFFICIENCY</span><strong>{algaeEfficiency}%</strong><input type="range" min="0" max="70" value={algaeEfficiency} onChange={event => setAlgaeEfficiency(Number(event.target.value))}/></label>
       <label><span>ANALYSIS HORIZON</span><strong>{hours} hours</strong><input type="range" min="1" max="24" value={hours} onChange={event => setHours(Number(event.target.value))}/></label>
-      <div className="assumption"><span>COMBINED CLEAN-AIR DELIVERY</span><strong>{cadr.toLocaleString(undefined,{maximumFractionDigits:0})} m³/h</strong><small>Moss {mossCadr.toFixed(0)} + algae increment {algaeIncrementalCadr.toFixed(0)} m³/h</small></div>
+      <div className="assumption"><span>COMBINED CLEAN-AIR DELIVERY</span><strong>{cadr.toLocaleString(undefined,{maximumFractionDigits:0})} m³/h</strong><small>Measured chamber {mossCadr.toFixed(0)} + algae increment {algaeIncrementalCadr.toFixed(0)} m³/h</small></div>
     </div>
 
     <div className="analysis-metrics">
@@ -500,12 +578,12 @@ function Analysis({air, loading, error, units, setUnits, efficiency, setEfficien
     <div className="chart-grid">
       <article className="chart-card concentration-chart">
         <div className="chart-title"><div><span>01 / CONCENTRATION TREND</span><h2>Baseline → moss → moss + algae</h2></div><p>Hover or tap to isolate algae’s incremental effect.</p></div>
-        <div className="chart-frame">{trend.length ? <ResponsiveContainer width="100%" height="100%"><LineChart data={trend} margin={{top:15,right:20,left:5,bottom:5}}><CartesianGrid stroke="#dfe5d7" strokeDasharray="4 5" vertical={false}/><XAxis dataKey="time" tickFormatter={value => `${value}h`} stroke="#73806f"/><YAxis unit=" µg/m³" domain={['dataMin - 2','dataMax + 2']} stroke="#73806f"/><Tooltip content={<ModelTooltip/>}/><Legend/><Line type="monotone" dataKey="baseline" name="Without biofilter" stroke="#9b735d" strokeWidth={3} dot={false}/><Line type="monotone" dataKey="mossOnly" name="Moss only" stroke="#66894d" strokeWidth={3} dot={false}/><Line type="monotone" dataKey="combined" name="Moss + algae" stroke="#16858c" strokeWidth={4} dot={false} activeDot={{r:7}}/></LineChart></ResponsiveContainer> : <ChartEmpty/>}</div>
+        <div className="chart-frame">{trend.length ? <ResponsiveContainer width="100%" height="100%"><LineChart data={trend} margin={{top:15,right:20,left:5,bottom:5}}><CartesianGrid stroke="#dfe5d7" strokeDasharray="4 5" vertical={false}/><XAxis dataKey="time" tickFormatter={value => `${value}h`} stroke="#73806f"/><YAxis unit=" µg/m³" domain={['dataMin - 2','dataMax + 2']} stroke="#73806f"/><Tooltip content={<ModelTooltip/>}/><Legend/><Line type="monotone" dataKey="baseline" name="Without biofilter" stroke="#9b735d" strokeWidth={3} dot={false}/><Line type="monotone" dataKey="mossOnly" name="Measured chamber" stroke="#66894d" strokeWidth={3} dot={false}/><Line type="monotone" dataKey="combined" name="Chamber + algae increment" stroke="#16858c" strokeWidth={4} dot={false} activeDot={{r:7}}/></LineChart></ResponsiveContainer> : <ChartEmpty/>}</div>
       </article>
 
       <article className="chart-card capture-chart">
         <div className="chart-title"><div><span>02 / CAPTURE TREND</span><h2>Captured mass by biological stage</h2></div><p>Stacked values show moss and algae separately.</p></div>
-        <div className="chart-frame">{trend.length ? <ResponsiveContainer width="100%" height="100%"><AreaChart data={trend} margin={{top:15,right:22,left:5,bottom:5}}><defs><linearGradient id="mossFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#78984f" stopOpacity={.75}/><stop offset="100%" stopColor="#78984f" stopOpacity={.16}/></linearGradient><linearGradient id="algaeFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#1e9aa2" stopOpacity={.72}/><stop offset="100%" stopColor="#1e9aa2" stopOpacity={.14}/></linearGradient></defs><CartesianGrid stroke="#dfe5d7" strokeDasharray="4 5" vertical={false}/><XAxis dataKey="time" tickFormatter={value => `${value}h`} stroke="#73806f"/><YAxis unit=" g" stroke="#73806f"/><Tooltip content={<CaptureTooltip/>}/><Legend/><Area stackId="capture" type="monotone" dataKey="mossCaptured" name="Moss capture" stroke="#58763e" strokeWidth={3} fill="url(#mossFill)"/><Area stackId="capture" type="monotone" dataKey="algaeCaptured" name="Algae capture" stroke="#147b81" strokeWidth={3} fill="url(#algaeFill)"/></AreaChart></ResponsiveContainer> : <ChartEmpty/>}</div>
+          <div className="chart-frame">{trend.length ? <ResponsiveContainer width="100%" height="100%"><AreaChart data={trend} margin={{top:15,right:22,left:5,bottom:5}}><defs><linearGradient id="mossFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#78984f" stopOpacity={.75}/><stop offset="100%" stopColor="#78984f" stopOpacity={.16}/></linearGradient><linearGradient id="algaeFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#1e9aa2" stopOpacity={.72}/><stop offset="100%" stopColor="#1e9aa2" stopOpacity={.14}/></linearGradient></defs><CartesianGrid stroke="#dfe5d7" strokeDasharray="4 5" vertical={false}/><XAxis dataKey="time" tickFormatter={value => `${value}h`} stroke="#73806f"/><YAxis unit=" g" stroke="#73806f"/><Tooltip content={<CaptureTooltip/>}/><Legend/><Area stackId="capture" type="monotone" dataKey="mossCaptured" name="Measured chamber capture" stroke="#58763e" strokeWidth={3} fill="url(#mossFill)"/><Area stackId="capture" type="monotone" dataKey="algaeCaptured" name="Additional algae capture" stroke="#147b81" strokeWidth={3} fill="url(#algaeFill)"/></AreaChart></ResponsiveContainer> : <ChartEmpty/>}</div>
       </article>
     </div>
 
@@ -531,7 +609,7 @@ const METRIC_HELP:Record<string,string> = {
 };
 function AnalysisMetric({label,value,detail}:{label:string;value:string;detail:string}) {return <div className="analysis-metric"><span>{label}</span><strong>{value}</strong><small>{detail}</small>{METRIC_HELP[label]&&<p className="metric-help">{METRIC_HELP[label]}</p>}</div>}
 function ChartEmpty() {return <div className="chart-empty"><Activity size={28}/><strong>Waiting for current air data</strong><span>The graph will appear when the baseline source responds.</span></div>}
-function ModelTooltip({active,payload,label}:any) {if (!active || !payload?.length) return null; return <div className="model-tooltip"><strong>{label} hours</strong><span>Without biofilter: {payload[0]?.value} µg/m³</span><span>Moss only: {payload[1]?.value} µg/m³</span><span>Moss + algae: {payload[2]?.value} µg/m³</span></div>}
+function ModelTooltip({active,payload,label}:any) {if (!active || !payload?.length) return null; return <div className="model-tooltip"><strong>{label} hours</strong><span>Without biofilter: {payload[0]?.value} µg/m³</span><span>Measured chamber: {payload[1]?.value} µg/m³</span><span>With algae increment: {payload[2]?.value} µg/m³</span></div>}
 function CaptureTooltip({active,payload,label}:any) {if (!active || !payload?.length) return null; return <div className="model-tooltip"><strong>{label} hours</strong><span>Moss: {Number(payload[0]?.value).toFixed(4)} g</span><span>Algae: {Number(payload[1]?.value).toFixed(4)} g</span><span>Total: {(Number(payload[0]?.value) + Number(payload[1]?.value)).toFixed(4)} g</span></div>}
 
 type SensorTelemetry = {
@@ -929,7 +1007,7 @@ function ChamberSensors({mossEfficiency,algaeEfficiency,onApplyEfficiency}:{moss
       <div className="simulation-preset"><span>MICROCLIMATE</span><strong>Automatic</strong><small>Temperature + humidity</small></div>
       <div className="simulation-equation">
         <span>CURRENT MODEL INPUTS</span>
-        <strong>Moss {mossEfficiency}% → Algae {algaeEfficiency}%</strong>
+        <strong>Measured chamber {mossEfficiency}% → Additional algae {algaeEfficiency}%</strong>
         <small>Combined η = {(combinedStageEfficiency(mossEfficiency / 100, algaeEfficiency / 100) * 100).toFixed(1)}% · Q = {airflow} m³/h · deterministic</small>
       </div>
       {simulationError && <p className="simulation-error">{simulationError}</p>}

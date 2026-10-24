@@ -29,6 +29,10 @@ SITES = [
     {'id': 'whitefield', 'name': 'Whitefield', 'lat': 12.9698, 'lng': 77.7500},
     {'id': 'silk-board', 'name': 'Silk Board', 'lat': 12.9177, 'lng': 77.6233},
     {'id': 'jayanagar', 'name': 'Jayanagar', 'lat': 12.9250, 'lng': 77.5938},
+    {'id': 'rr-nagar', 'name': 'RR Nagar', 'lat': 12.9250, 'lng': 77.4992},
+    {'id': 'vijayanagar', 'name': 'Vijayanagar', 'lat': 12.9719, 'lng': 77.5299},
+    {'id': 'jp-nagar', 'name': 'JP Nagar', 'lat': 12.9063, 'lng': 77.5857},
+    {'id': 'sarjapur', 'name': 'Sarjapur', 'lat': 12.8600, 'lng': 77.7860},
 ]
 
 

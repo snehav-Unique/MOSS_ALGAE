@@ -16,7 +16,7 @@ const SUGGESTIONS = [
 
 const TOOL_LABEL:Record<string,string> = {
   get_planner_state:'Planner state', optimize_deployment:'Optimizer', lifecycle_cost:'Economics',
-  get_city_hotspots:'Hotspots', get_site_receptors:'Receptors', get_site_air:'Forecast',
+  get_city_hotspots:'Station quality', get_site_receptors:'Receptors', get_site_air:'Forecast',
 };
 
 function engineLabel(model?:string) {

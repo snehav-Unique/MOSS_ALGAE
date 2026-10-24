@@ -48,7 +48,7 @@ TOOLS = [
     _tool('get_city_hotspots', 'Latest measured PM2.5 from OpenAQ stations within 25 km of Bengaluru with quality flags (stale, outlier) and hotspot status against NAAQS (60) and WHO (15) 24-hour limits.', {}),
     _tool('get_site_receptors', 'Schools, hospitals/clinics and bus stops within 500 m of each candidate area, from OpenStreetMap.', {}),
     _tool('get_site_air', 'Modeled current PM2.5 and the 72-hour forecast (peak, cleanest hour) for one candidate area from Open-Meteo.', {
-        'site_id': {'type': 'string', 'enum': ['peenya', 'yeshwanthpur', 'majestic', 'hebbal', 'kr-puram', 'whitefield', 'silk-board', 'jayanagar']},
+        'site_id': {'type': 'string', 'enum': ['peenya', 'yeshwanthpur', 'majestic', 'hebbal', 'kr-puram', 'whitefield', 'silk-board', 'jayanagar', 'rr-nagar', 'vijayanagar', 'jp-nagar', 'sarjapur']},
     }),
 ]
 

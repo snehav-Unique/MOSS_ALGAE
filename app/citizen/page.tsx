@@ -3,6 +3,7 @@
 import {FormEvent, useEffect, useMemo, useState} from 'react';
 import {Briefcase, Clock, Crosshair, HeartPulse, LoaderCircle, MapPin, Send, Users} from 'lucide-react';
 import {API, Air, CANDIDATE_SITES, HourlyPoint, NAAQS_PM25_24H, WHO_PM25_24H, fetchCurrentAir, fetchHourlyAir} from '../../lib/air';
+import {useLeafletMap} from '../../components/use-leaflet-map';
 
 type Lang = 'en'|'kn'|'hi';
 type Band = 'good'|'moderate'|'poor'|'severe';
@@ -117,6 +118,18 @@ export default function CitizenPage() {
   }, [hourly]);
 
   const nearest = useMemo(() => CANDIDATE_SITES.map(site => ({site, km:distanceKm(point, site)})).sort((a, b) => a.km - b.km)[0], [point]);
+  const {node:podMapNode, leaflet:podMap, tileError:podMapError} = useLeafletMap(CANDIDATE_SITES.map(site => [site.lat, site.lng]));
+  useEffect(() => {
+    if (!podMap || !nearest) return;
+    const {L, map, layer} = podMap;
+    layer.clearLayers();
+    const user = L.circleMarker([point.lat, point.lng], {radius:9, color:'#fff', weight:3, fillColor:'#16858c', fillOpacity:1})
+      .bindTooltip(point.label, {direction:'top'}).addTo(layer);
+    const pod = L.circleMarker([nearest.site.lat, nearest.site.lng], {radius:11, color:'#fff', weight:3, fillColor:'#587448', fillOpacity:1})
+      .bindTooltip(`Nearest pod: ${nearest.site.name}`, {direction:'top'}).addTo(layer);
+    L.polyline([[point.lat, point.lng], [nearest.site.lat, nearest.site.lng]], {color:'#16858c', weight:3, dashArray:'7 6'}).addTo(layer);
+    map.fitBounds(L.latLngBounds([user.getLatLng(), pod.getLatLng()]), {padding:[45,45], maxZoom:13});
+  }, [podMap, point, nearest]);
   const time = (iso:string) => new Date(iso).toLocaleTimeString(LOCALE[lang], {hour:'numeric', minute:'2-digit'});
   const band = air ? bandFor(air.pm25) : null;
 
@@ -176,6 +189,11 @@ export default function CitizenPage() {
     </section>}
 
     <section className="citizen-pod"><span>{t('nearestPod')}</span><strong>{nearest.site.name}</strong><small>{nearest.km.toFixed(1)} {t('kmAway')} · {t('proposalNote')}</small></section>
+    <section className="citizen-pod-map" aria-label={`Map from ${point.label} to nearest proposed pod at ${nearest.site.name}`}>
+      <div ref={podMapNode}/>
+      {podMapError && <p>Live map tiles unavailable. The nearest-pod calculation is still active.</p>}
+      <footer><span><i className="person"/> Your location</span><span><i className="pod"/> {nearest.site.name} pod</span></footer>
+    </section>
 
     <form className="citizen-suggest" onSubmit={suggest}>
       <h2>{t('suggestTitle')}</h2><p>{t('suggestHelp')}</p>

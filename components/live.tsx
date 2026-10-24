@@ -2,18 +2,15 @@
 
 import {ReactNode, createContext, useCallback, useContext, useEffect, useRef, useState} from 'react';
 import {Activity, ArrowDownRight, ArrowUpRight, Cpu, Droplets, Flame, Minus} from 'lucide-react';
-import {AIRFLOW_PER_UNIT, API, CityLive, NAAQS_PM25_24H, WHO_PM25_24H, combinedStageEfficiency, fetchCityAir} from '../lib/air';
+import {AIRFLOW_PER_UNIT, API, CANDIDATE_SITES, CityLive, NAAQS_PM25_24H, WHO_PM25_24H, combinedStageEfficiency, fetchCityAir} from '../lib/air';
 
 const CITY_EVERY_MS = 5 * 60 * 1000;
 const CHAMBER_EVERY_MS = 4000;
-const HOTSPOTS_EVERY_MS = 10 * 60 * 1000;
-
 type Chamber = {connected:boolean; efficiency:number|null; inlet:number|null; outlet:number|null; temperature:number|null; humidity:number|null; timestamp:string|null; simulated:boolean; board:string|null; transport:string|null};
-type HotspotSummary = {measured:boolean; stations:number; hotspots:number; elevated:number};
 type Live = {
   city:CityLive|null; cityFetchedAt:number|null; cityError:boolean; nextCityAt:number;
   chamber:Chamber|null; chamberFetchedAt:number|null;
-  hotspots:HotspotSummary|null; openedAt:number; refreshCity:()=>void;
+  openedAt:number; refreshCity:()=>void;
 };
 
 const LiveContext = createContext<Live|null>(null);
@@ -38,7 +35,6 @@ export function LiveProvider({children}:{children:ReactNode}) {
   const [nextCityAt, setNextCityAt] = useState(Date.now() + CITY_EVERY_MS);
   const [chamber, setChamber] = useState<Chamber|null>(null);
   const [chamberFetchedAt, setChamberFetchedAt] = useState<number|null>(null);
-  const [hotspots, setHotspots] = useState<HotspotSummary|null>(null);
   const [openedAt] = useState(() => Date.now());
 
   const refreshCity = useCallback(() => {
@@ -79,19 +75,7 @@ export function LiveProvider({children}:{children:ReactNode}) {
     return () => {active = false; clearInterval(timer)};
   }, []);
 
-  useEffect(() => {
-    let active = true;
-    const poll = () => fetch(`${API}/api/hotspots`).then(r => r.ok ? r.json() : null).then(data => {
-      if (!active || !data?.stations?.length) return;
-      const stations = data.stations as Array<{status:string}>;
-      setHotspots({measured:true, stations:stations.length, hotspots:stations.filter(s => s.status === 'hotspot').length, elevated:stations.filter(s => s.status === 'elevated').length});
-    }).catch(() => {});
-    poll();
-    const timer = setInterval(poll, HOTSPOTS_EVERY_MS);
-    return () => {active = false; clearInterval(timer)};
-  }, []);
-
-  return <LiveContext.Provider value={{city, cityFetchedAt, cityError, nextCityAt, chamber, chamberFetchedAt, hotspots, openedAt, refreshCity}}>{children}</LiveContext.Provider>;
+  return <LiveContext.Provider value={{city, cityFetchedAt, cityError, nextCityAt, chamber, chamberFetchedAt, openedAt, refreshCity}}>{children}</LiveContext.Provider>;
 }
 
 /** Eases from the previous value to the new one so updates are visible. */
@@ -138,7 +122,7 @@ export function Trend({change, unit = ''}:{change:number|null; unit?:string}) {
 }
 
 export function LiveStrip({units, mossEfficiency, algaeEfficiency}:{units:number; mossEfficiency:number; algaeEfficiency:number}) {
-  const {city, cityFetchedAt, cityError, nextCityAt, chamber, chamberFetchedAt, hotspots, openedAt} = useLive();
+  const {city, cityFetchedAt, cityError, nextCityAt, chamber, chamberFetchedAt, openedAt} = useLive();
   const now = useNow(1000);
   const worst = city?.sites.reduce((max, s) => s.pm25 > max.pm25 ? s : max, city.sites[0]);
   const aboveWho = city?.sites.filter(s => s.pm25 > WHO_PM25_24H).length ?? 0;
@@ -151,9 +135,9 @@ export function LiveStrip({units, mossEfficiency, algaeEfficiency}:{units:number
   const nextIn = Math.max(0, Math.round((nextCityAt - now) / 1000));
 
   return <div className="live-strip" role="status" aria-live="off">
-    <div className="live-item lead"><span className={`live-pulse ${cityError ? 'error' : ''}`}/><div><span>BENGALURU · AVG PM2.5</span><strong><AnimatedNumber value={city?.avg}/> <small>µg/m³</small></strong><em className="live-cap">Average of 8 areas · arrow = 1 h change · line = 24 h</em></div><Trend change={city?.change1h ?? null}/><Sparkline values={city?.series24h ?? []}/></div>
-    <div className="live-item"><Flame size={15}/><div><span>WORST AREA NOW</span><strong>{worst ? <>{worst.name} <small><AnimatedNumber value={worst.pm25}/></small></> : '—'}</strong><em className="live-cap">Highest modeled PM2.5 of the 8 areas</em></div></div>
-    <div className="live-item"><Activity size={15}/><div><span>{hotspots ? `MEASURED STATIONS · ${hotspots.stations}` : `AREAS ABOVE WHO / NAAQS`}</span><strong>{hotspots ? <>{hotspots.hotspots} hotspots · {hotspots.elevated} elevated</> : city ? <>{aboveWho}/{city.sites.length} · {aboveNaaqs}/{city.sites.length}</> : '—'}</strong><em className="live-cap">Above WHO 15 / India 60 µg/m³</em></div></div>
+    <div className="live-item lead"><span className={`live-pulse ${cityError ? 'error' : ''}`}/><div><span>BENGALURU · AVG PM2.5</span><strong><AnimatedNumber value={city?.avg}/> <small>µg/m³</small></strong><em className="live-cap">Average of {city?.sites.length ?? CANDIDATE_SITES.length} pod areas · arrow = 1 h change · line = 24 h</em></div><Trend change={city?.change1h ?? null}/><Sparkline values={city?.series24h ?? []}/></div>
+    <div className="live-item"><Flame size={15}/><div><span>WORST AREA NOW</span><strong>{worst ? <>{worst.name} <small><AnimatedNumber value={worst.pm25}/></small></> : '—'}</strong><em className="live-cap">Highest modeled PM2.5 across proposed pod areas</em></div></div>
+    <div className="live-item"><Activity size={15}/><div><span>AREAS ABOVE WHO / NAAQS</span><strong>{city ? <>{aboveWho}/{city.sites.length} · {aboveNaaqs}/{city.sites.length}</> : '—'}</strong><em className="live-cap">Above WHO 15 / India 60 µg/m³</em></div></div>
     <div className={`live-item ${chamberLive ? '' : 'muted'}`}><Cpu size={15}/><div><span>CHAMBER {chamber?.simulated ? '· SIMULATED' : chamberLive ? `· LIVE${chamber?.board ? ` · ${chamber.board.toUpperCase()}${chamber.transport ? ` ${chamber.transport.toUpperCase()}` : ''}` : ''}` : '· OFFLINE'}</span><strong>{chamber?.efficiency != null && chamberLive ? <><AnimatedNumber value={chamber.efficiency}/>% removal <small>{chamber.inlet?.toFixed(0)}→{chamber.outlet?.toFixed(0)} ppm</small></> : 'No recent reading'}</strong><em className="live-cap">Intake → exhaust, two MQ-135 sensors</em></div></div>
     <div className="live-item"><Droplets size={15}/><div><span>PROJECTED · {units} PODS AT CITY AVG</span><strong>{projectedGrams.toFixed(4)} g <small>since you opened · {gramsPerHour.toFixed(2)} g/h</small></strong><em className="live-cap">What-if estimate, not a measurement</em></div></div>
     <div className="live-item meta"><div><span>MODEL {city?.modelTime ? city.modelTime.slice(11, 16) : '—'} · FETCHED {ago(cityFetchedAt, now)}</span><strong><small>next refresh {Math.floor(nextIn / 60)}:{String(nextIn % 60).padStart(2, '0')} · chamber {ago(chamberFetchedAt, now)}</small></strong></div></div>

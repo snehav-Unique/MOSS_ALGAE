@@ -13,6 +13,10 @@ export const CANDIDATE_SITES:CandidateSite[] = [
   {id:'whitefield',name:'Whitefield',context:'Dense employment corridor',lat:12.9698,lng:77.7500},
   {id:'silk-board',name:'Silk Board',context:'Traffic interchange',lat:12.9177,lng:77.6233},
   {id:'jayanagar',name:'Jayanagar',context:'Commercial + residential',lat:12.9250,lng:77.5938},
+  {id:'rr-nagar',name:'RR Nagar',context:'Residential + university corridor',lat:12.9250,lng:77.4992},
+  {id:'vijayanagar',name:'Vijayanagar',context:'Dense residential + transit corridor',lat:12.9719,lng:77.5299},
+  {id:'jp-nagar',name:'JP Nagar',context:'Residential + commercial corridor',lat:12.9063,lng:77.5857},
+  {id:'sarjapur',name:'Sarjapur',context:'Fast-growing southeast corridor',lat:12.8600,lng:77.7860},
 ];
 
 // Shared box-model assumptions used by every view (illustrative, not calibrated).
@@ -49,13 +53,19 @@ export async function fetchCurrentAir(point:{lat:number; lng:number}):Promise<Ai
 }
 
 export async function fetchHourlyAir(point:{lat:number; lng:number}, pastDays:number, forecastDays:number):Promise<HourlyPoint[]> {
-  const url = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${point.lat}&longitude=${point.lng}&hourly=pm2_5,us_aqi&past_days=${pastDays}&forecast_days=${forecastDays}&timezone=auto`;
+  const query = new URLSearchParams({
+    latitude:String(point.lat), longitude:String(point.lng),
+    past_days:String(pastDays), forecast_days:String(forecastDays),
+  });
+  const url = `${API}/api/air-quality/hourly?${query}`;
   const response = await fetch(url);
-  if (!response.ok) throw new Error('Hourly air-quality service did not respond.');
+  if (!response.ok) {
+    const problem = await response.json().catch(() => null);
+    throw new Error(problem?.detail || 'Hourly air-quality service did not respond.');
+  }
   const data = await response.json();
-  const times:string[] = data.hourly?.time ?? [];
-  return times.map((time, index) => ({time, pm25:Number(data.hourly.pm2_5?.[index]), aqi:data.hourly.us_aqi?.[index] == null ? null : Number(data.hourly.us_aqi[index])}))
-    .filter(point => Number.isFinite(point.pm25));
+  if (!Array.isArray(data.points) || !data.points.length) throw new Error('No hourly forecast values were returned.');
+  return data.points.filter((point:HourlyPoint) => point && Number.isFinite(point.pm25));
 }
 
 export type SiteLive = CandidateSite & {pm25:number; aqi:number; time:string; change1h:number|null; avg24h:number|null};

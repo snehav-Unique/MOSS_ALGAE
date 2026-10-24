@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="robots" content="noindex,nofollow" />
+  <title>MOSS–ALGAE · Owner feedback</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+<main class="shell">
+  <header class="masthead"><div class="brand"><span class="mark">M</span><div><b>MOSS–ALGAE</b><small>OWNER CONSOLE</small></div></div><span class="private-badge"><i></i> PRIVATE VIEW</span></header>
+  <section id="loginView" class="login-view">
+    <div class="login-copy"><p class="eyebrow">CITIZEN INPUT, IN ONE PLACE</p><h1>Where should the next clean-air pod go?</h1><p>Review location requests submitted from the citizen page. Records stay in Firebase Firestore and are available here only through the protected owner API.</p><div class="security-note"><span>✓</span><p><b>Server-protected</b><br />Your key is used for this session only and is never stored by this page.</p></div></div>
+    <form id="loginForm" class="login-card"><div class="lock">⌁</div><h2>Owner access</h2><p>Enter the dashboard key configured on the API server.</p><label for="ownerKey">Dashboard key</label><input id="ownerKey" type="password" autocomplete="current-password" placeholder="Enter owner key" required /><button id="unlockButton" type="submit">Unlock feedback <span>→</span></button><p id="loginError" class="error" role="alert"></p></form>
+  </section>
+  <section id="dashboardView" class="dashboard" hidden>
+    <div class="title-row"><div><p class="eyebrow">FIREBASE FIRESTORE</p><h1>Pod suggestions</h1><p id="lastUpdated">Citizen location feedback</p></div><button id="lockButton" class="ghost">Lock dashboard</button></div>
+    <div class="metrics"><article><span>Total responses</span><strong id="totalMetric">0</strong><small>citizen submissions</small></article><article><span>Areas represented</span><strong id="areaMetric">0</strong><small>nearest pod zones</small></article><article class="wide"><span>Most requested area</span><strong id="leadingMetric">—</strong><small id="leadingCount">No submissions yet</small></article></div>
+    <div class="toolbar"><label><span>⌕</span><input id="searchInput" type="search" placeholder="Search feedback or nearest pod" /></label><button id="refreshButton" class="refresh">↻ Refresh</button></div>
+    <p id="dashboardError" class="error dashboard-error" role="alert"></p><div id="records" class="records"></div>
+  </section>
+</main>
+<script type="module" src="/app.js?v=2"></script>
+</body>
+</html>

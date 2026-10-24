@@ -27,6 +27,10 @@ const SITE_ASSUMPTIONS:Record<string,{setup:number; feasibility:number; equity:n
   'whitefield':{setup:3000, feasibility:.8, equity:.4},
   'silk-board':{setup:5500, feasibility:.5, equity:.6},
   'jayanagar':{setup:2500, feasibility:.9, equity:.4},
+  'rr-nagar':{setup:3000, feasibility:.8, equity:.5},
+  'vijayanagar':{setup:3500, feasibility:.7, equity:.7},
+  'jp-nagar':{setup:3000, feasibility:.8, equity:.5},
+  'sarjapur':{setup:4000, feasibility:.7, equity:.6},
 };
 
 type Candidate = {id:string; cost:number; scores:number[]};
@@ -75,7 +79,6 @@ export function Planner({mossEfficiency, algaeEfficiency, dutyHours, setDutyHour
   const [discount, setDiscount] = useState(8);
   const [lifecycleCost, setLifecycleCost] = useState<number|null>(null);
   const [showReport, setShowReport] = useState(false);
-  const [suggestions, setSuggestions] = useState<Array<{lat:number; lng:number; reason:string}>>([]);
   const {node, leaflet, tileError} = useLeafletMap(CANDIDATE_SITES.map(site => [site.lat, site.lng]));
 
   useEffect(() => {
@@ -85,7 +88,6 @@ export function Planner({mossEfficiency, algaeEfficiency, dutyHours, setDutyHour
       setAir(Object.fromEntries(entries.filter(([, value]) => value && Number.isFinite(value.pm25))) as Record<string,Air>);
       setAirLoading(false);
     });
-    fetch(`${API}/api/suggestions`).then(r => r.ok ? r.json() : null).then(data => {if (active && data) setSuggestions(data.suggestions)}).catch(() => {});
     return () => {active = false};
   }, []);
 
@@ -155,9 +157,8 @@ export function Planner({mossEfficiency, algaeEfficiency, dutyHours, setDutyHour
       economics:{fan_watts_per_pod:fanWatts, full_power_hours_per_day:Number(dutyHours.toFixed(2)), tariff_inr_per_kwh:tariff, maintenance_inr_per_pod_year:maintenance, years, discount_rate:discount / 100, duty_cycle_source:scheduleSource ?? 'manual'},
       media_efficiency:{moss:mossEfficiency / 100, algae:algaeEfficiency / 100, combined:Number(combinedEfficiency.toFixed(3))},
       score_notes:'Exposure = PM2.5 x (1 + receptors within 500 m), normalized. Feasibility, equity and setup cost are editable team assumptions. Air values are Open-Meteo modeled.',
-      citizen_suggestions:suggestions.length,
     });
-  }, [candidates, weights, budget, podsPerSite, podCost, result, lifecycleCost, fanWatts, dutyHours, tariff, maintenance, years, discount, scheduleSource, suggestions.length]);
+  }, [candidates, weights, budget, podsPerSite, podCost, result, lifecycleCost, fanWatts, dutyHours, tariff, maintenance, years, discount, scheduleSource]);
 
   const reportData:ReportData = {
     budget, spend:spent, pods, podsPerSite, podCost, weights:CRITERIA.map((name, i) => ({name, share:result?.normalized_weights[i] ?? 0})),
@@ -176,8 +177,7 @@ export function Planner({mossEfficiency, algaeEfficiency, dutyHours, setDutyHour
       const icon = L.divIcon({className:'area-anchor-shell', html:`<div class="plan-pin ${chosen ? 'chosen' : ''}"><strong>${chosen ? podsPerSite : '—'}</strong><span>${c.site.name}</span></div>`, iconSize:[120,58], iconAnchor:[60,29]});
       L.marker([c.site.lat, c.site.lng], {icon, title:`${c.site.name}: ${chosen ? 'selected' : 'not selected'}`, keyboard:true}).addTo(layer);
     });
-    suggestions.forEach(s => L.circleMarker([s.lat, s.lng], {radius:6, color:'#fff', weight:1.5, fillColor:'#7a4fa3', fillOpacity:.9}).bindTooltip(`Citizen suggestion: ${s.reason.replace(/[<>&]/g, '')}`).addTo(layer));
-  }, [leaflet, candidates, result, podsPerSite, suggestions]);
+  }, [leaflet, candidates, result, podsPerSite]);
 
   const updateAssumption = (id:string, key:'setup'|'feasibility'|'equity', value:number) => {
     if (!Number.isFinite(value)) return;
@@ -203,7 +203,7 @@ export function Planner({mossEfficiency, algaeEfficiency, dutyHours, setDutyHour
     ]}/>
     <div className="planner-grid">
       <article className="feature-panel">
-        <div className="panel-heading"><div><span>OPTIMAL SET / {selected.length} OF {candidates.length} AREAS</span><h2>Recommended deployment</h2></div><p>Teal pins are selected. Badges show pods per area. Purple dots are citizen suggestions.</p></div>
+        <div className="panel-heading"><div><span>OPTIMAL SET / {selected.length} OF {candidates.length} AREAS</span><h2>Recommended deployment</h2></div><p>Teal pins are selected. Badges show pods per area.</p></div>
         <div className="feature-map"><div ref={node} className="feature-leaflet"/>{tileError && <div className="map-status">Live tiles unavailable · local Bengaluru map active</div>}</div>
       </article>
       <article className="feature-panel planner-summary">
