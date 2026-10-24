@@ -11,7 +11,7 @@ import {Planner} from '../components/planner';
 import {Assistant, PlannerState} from '../components/assistant';
 import {Guide, InfoTip} from '../components/info';
 import {MAP_OPTIONS} from '../components/use-leaflet-map';
-import {AnimatedNumber, LiveProvider, Sparkline, Trend, ago, useLive, useNow} from '../components/live';
+import {AnimatedNumber, LiveProvider, LiveStrip, Sparkline, Trend, ago, useLive, useNow} from '../components/live';
 
 const INITIAL_SITE = {lat: 12.9716, lng: 77.5946};
 const MEASURED_SYSTEM_EFFICIENCY = 79;
@@ -264,6 +264,7 @@ function MossExperience() {
       <div className="rail-index">01<br/><span>INDIA</span></div>
     </aside>
 
+    {view === 'analysis' && <LiveStrip units={units} mossEfficiency={efficiency} algaeEfficiency={algaeEfficiency}/>}
     {view === 'home' ? <section className="landing" aria-label="Moss algae landing page">
       <picture>
         <source srcSet="/MOSS.webp" type="image/webp"/>
