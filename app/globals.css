@@ -384,7 +384,6 @@ h1 .info-tip{width:24px;height:24px;font-size:14px;vertical-align:.35em}
 .sensor-kpi-card .pop-next{font-size:.8rem;color:#7a8677}
 @media(prefers-reduced-motion:reduce){.sensor-kpi-card{transition:none}.sensor-kpi-card.pop{transform:none}}
 .co2-band{display:inline-block;align-self:flex-start;margin-top:auto;padding:3px 10px;border-radius:999px;color:#fff;font-size:.85rem;font-weight:600;letter-spacing:.2px}
-.calibration-bar{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-top:14px;padding:10px 14px;background:#eef6f3;border:1px solid #bfdcd5;border-left:4px solid #16858c;color:#1f3a33;font-size:.92rem}
 .connection-badge.disconnected .live-dot{background:#ef4444;box-shadow:0 0 0 5px rgba(239,68,68,.25)}
 .connection-badge.disconnected strong{color:#fca5a5}
 .sensor-kpi-card.offline{opacity:.6;filter:grayscale(.6)}

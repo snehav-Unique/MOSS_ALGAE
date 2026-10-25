@@ -657,57 +657,14 @@ async def test_telegram_alert():
     return {"status": "ok", "message": "Telegram test alert sent successfully!"}
 
 
-# Software fresh-air calibration: the MQ-135 sketches only report gas relative to their own start-up air,
-# so each sensor's average over the first readings after (re)calibration is taken as fresh air (400 ppm CO2).
-CALIBRATION_SAMPLES = 5
-BASELINE_FLOOR_PPM = 380.0   # below this the reference has drifted, not the air
-BASELINE_ADAPT_RATE = 0.3    # quick correction of impossible below-fresh-air readings (~5 readings)
-DRIFT_TRACK_RATE = 0.007     # slow tracking of heater drift in both directions (~5 min at one reading per 2 s)
-SMOOTHING_READINGS = 3       # displayed ppm = average of the last readings, so noise does not swap the sensors
-gas_calibration: dict = {'inlet': None, 'outlet': None, 'samples': [], 'at': None, 'recent': {'inlet': [], 'outlet': []}}
+# Same conversion as the standalone ESP32 dashboard: the MQ-135 sketches report gas relative to the air at
+# board start-up (start-up air = 3.36); treating start-up air as fresh air (~400 ppm CO2) gives
+# CO2-equivalent ppm = reading x 400 / 3.36. Values already in ppm (>= 50) pass through unchanged.
+STARTUP_RELATIVE_READING = 3.36
 
 
-def calibrate_gas(raw1: float, raw2: float) -> Optional[tuple]:
-    """CO2-equivalent ppm for both sensors, or None while the fresh-air reference is still being collected."""
-    if gas_calibration['inlet'] is None:
-        gas_calibration['samples'].append((raw1, raw2))
-        if len(gas_calibration['samples']) < CALIBRATION_SAMPLES:
-            return None
-        n = len(gas_calibration['samples'])
-        gas_calibration.update(inlet=sum(a for a, _ in gas_calibration['samples']) / n,
-                               outlet=sum(b for _, b in gas_calibration['samples']) / n,
-                               samples=[], at=datetime.now(timezone.utc).isoformat())
-    # Baseline correction, the same for both sensors. Each MQ-135 heater drifts on its own for hours, which
-    # otherwise outweighs the filter's effect and makes the exhaust read above the intake in identical air.
-    # A slow reference follow (minutes) cancels that drift; fast changes such as smoke or breath still show.
-    # Readings below fresh air are impossible, so those are corrected quickly.
-    shown = {}
-    for key, raw in (('inlet', raw1), ('outlet', raw2)):
-        reference = gas_calibration[key]
-        if raw > 0:
-            rate = BASELINE_ADAPT_RATE if raw * FRESH_AIR_CO2_PPM / reference < BASELINE_FLOOR_PPM else DRIFT_TRACK_RATE
-            reference = reference * (1 - rate) + raw * rate
-            gas_calibration[key] = reference
-        recent = gas_calibration['recent'][key]
-        recent.append(raw * FRESH_AIR_CO2_PPM / reference)
-        del recent[:-SMOOTHING_READINGS]
-        shown[key] = round(sum(recent) / len(recent), 1)
-    return shown['inlet'], shown['outlet']
-
-
-BOARD_RESTART_MARKERS = ('rst:', 'ets ', 'Connecting to Wi-Fi', 'INITIALIZED')
-
-
-def is_board_restart_line(line: str) -> bool:
-    """ESP32/Arduino boot output; after it the sketch measures relative to a new start-up reference."""
-    return not line.startswith('{') and any(marker in line for marker in BOARD_RESTART_MARKERS)
-
-
-@app.post('/api/sensors/calibrate')
-def recalibrate_sensors():
-    """Take the current air as fresh air (400 ppm) for both gas sensors over the next readings."""
-    gas_calibration.update(inlet=None, outlet=None, samples=[], at=None, recent={'inlet': [], 'outlet': []})
-    return {'status': 'calibrating', 'samples_needed': CALIBRATION_SAMPLES}
+def to_co2_ppm(value: float) -> float:
+    return round(value * FRESH_AIR_CO2_PPM / STARTUP_RELATIVE_READING) if value < RELATIVE_SCALE_MAX else round(value)
 
 
 @app.post('/api/sensors/reading')
@@ -728,15 +685,10 @@ def ingest_sensor_reading(reading: SensorReading):
                                         "In fresh air, wait 2-3 minutes, then press EN on the ESP32.",
                                 at=datetime.now(timezone.utc).isoformat())
             return {"status": "ignored", "reason": "zero reference"}
-        if reading.calibrated or min(raw1, raw2) >= RELATIVE_SCALE_MAX:
-            pre_filter, post_filter = raw1, raw2  # already ppm CO2 (relayed or calibrated firmware)
+        if reading.calibrated:
+            pre_filter, post_filter = raw1, raw2  # already ppm CO2 (relayed from the laptop)
         else:
-            calibrated = calibrate_gas(raw1, raw2)
-            if calibrated is None:
-                sensor_issue.update(message=f"Calibrating gas sensors to the current air as 400 ppm ({len(gas_calibration['samples'])}/{CALIBRATION_SAMPLES})...",
-                                    at=datetime.now(timezone.utc).isoformat())
-                return {"status": "ignored", "reason": "calibrating"}
-            pre_filter, post_filter = calibrated
+            pre_filter, post_filter = to_co2_ppm(raw1), to_co2_ppm(raw2)
         sensor_issue.update(message=None, at=None)
 
     # Measured single-pass efficiency %: (intake - exhaust) / intake * 100
@@ -762,7 +714,6 @@ def ingest_sensor_reading(reading: SensorReading):
         "health": health,
         "inlet_raw": raw1,
         "outlet_raw": raw2,
-        "calibrated_at": gas_calibration['at'] if reading.board_type != "simulator" and not reading.calibrated else None,
     }
 
     latest_sensor_reading = data
@@ -847,14 +798,9 @@ def serial_auto_scanner_loop():
                         hardware_serial_state["port"] = candidate_port
                         # Plain ASCII: on Windows an emoji here raises UnicodeEncodeError when output is redirected, killing the reader.
                         print(f"[AUTO-SERIAL] Physical board connected on {candidate_port} ({candidate_desc})", flush=True)
-                        # A (re)connected board restarts its own MQ-135 reference, so take fresh-air readings again.
-                        recalibrate_sensors()
                         while True:
                             line = ser.readline().decode('utf-8', errors='ignore').strip()
                             if not line:
-                                continue
-                            if is_board_restart_line(line):
-                                recalibrate_sensors()
                                 continue
                             if line.startswith('{') and line.endswith('}'):
                                 try:
