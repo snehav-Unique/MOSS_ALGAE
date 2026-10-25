@@ -42,6 +42,18 @@ class RealSensorReadingTests(unittest.TestCase):
         polluted = post(self.client, inlet_ppm=0.45, outlet_ppm=0.30)['recorded']
         self.assertGreater(polluted['inlet_ppm'], 550)
 
+    def test_board_restart_lines_are_detected(self):
+        for line in ('rst:0x1 (POWERON_RESET),boot:0x17 (SPI_FAST_FLASH_BOOT)', 'ets Jul 29 2019 12:21:46',
+                     'Connecting to Wi-Fi: hotspot', '{"status":"INITIALIZED","device":"MOSS_ALGAE_CHAMBER_V1"}'):
+            self.assertEqual(main.is_board_restart_line(line), not line.startswith('{'), line)
+        self.assertFalse(main.is_board_restart_line('{"inlet_ppm":5.2,"outlet_ppm":5.4}'))
+
+    def test_scale_jump_after_board_restart_recalibrates(self):
+        self.calibrate(inlet=0.45, outlet=0.42)
+        main.recalibrate_sensors()  # what the USB scanner does on reconnect / boot output
+        data = self.calibrate(inlet=5.2, outlet=5.4)['recorded']
+        self.assertEqual((data['inlet_ppm'], data['outlet_ppm']), (400.0, 400.0))
+
     def test_recalibrate_resets_reference(self):
         self.calibrate(inlet=0.6, outlet=0.5)
         self.assertEqual(self.client.post('/api/sensors/calibrate').json()['status'], 'calibrating')

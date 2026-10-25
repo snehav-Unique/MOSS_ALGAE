@@ -685,6 +685,14 @@ def calibrate_gas(raw1: float, raw2: float) -> Optional[tuple]:
             round(raw2 * FRESH_AIR_CO2_PPM / gas_calibration['outlet'], 1))
 
 
+BOARD_RESTART_MARKERS = ('rst:', 'ets ', 'Connecting to Wi-Fi', 'INITIALIZED')
+
+
+def is_board_restart_line(line: str) -> bool:
+    """ESP32/Arduino boot output; after it the sketch measures relative to a new start-up reference."""
+    return not line.startswith('{') and any(marker in line for marker in BOARD_RESTART_MARKERS)
+
+
 @app.post('/api/sensors/calibrate')
 def recalibrate_sensors():
     """Take the current air as fresh air (400 ppm) for both gas sensors over the next readings."""
@@ -829,9 +837,14 @@ def serial_auto_scanner_loop():
                         hardware_serial_state["port"] = candidate_port
                         # Plain ASCII: on Windows an emoji here raises UnicodeEncodeError when output is redirected, killing the reader.
                         print(f"[AUTO-SERIAL] Physical board connected on {candidate_port} ({candidate_desc})", flush=True)
+                        # A (re)connected board restarts its own MQ-135 reference, so take fresh-air readings again.
+                        recalibrate_sensors()
                         while True:
                             line = ser.readline().decode('utf-8', errors='ignore').strip()
                             if not line:
+                                continue
+                            if is_board_restart_line(line):
+                                recalibrate_sensors()
                                 continue
                             if line.startswith('{') and line.endswith('}'):
                                 try:
