@@ -6,24 +6,25 @@ def post(client, **fields):
     return client.post('/api/sensors/reading', json={'board_type': 'esp32', 'transport': 'wired', 'device_id': 'esp32_wired', **fields}).json()
 
 class RealSensorReadingTests(unittest.TestCase):
-    """Conversion matches the standalone ESP32 dashboard: reading x 400 / 3.36, rounded to whole ppm."""
+    """Relative MQ-135 readings become CO2-equivalent ppm against each sensor's own baseline (fresh air = 400 ppm)."""
     def setUp(self):
         self.client = TestClient(main.app)
         main.sensor_issue.update(message=None, at=None)
-        main.rematch_sensors()
+        main.reset_gas_baseline()
 
-    def test_relative_readings_become_co2_equivalent_ppm(self):
-        data = post(self.client, inlet_ppm=3.36, outlet_ppm=0.84, temperature=24.1, humidity=70.0)['recorded']
-        self.assertEqual((data['inlet_ppm'], data['outlet_ppm']), (400, 100))
-        self.assertEqual(data['efficiency'], 75.0)
-        self.assertEqual((data['inlet_raw'], data['outlet_raw']), (3.36, 0.84))
+    def test_first_reading_is_fresh_air_for_each_sensor(self):
+        data = post(self.client, inlet_ppm=3.10, outlet_ppm=3.80, temperature=24.1, humidity=70.0)['recorded']
+        self.assertEqual((data['inlet_ppm'], data['outlet_ppm']), (400, 400))
+        self.assertEqual((data['inlet_raw'], data['outlet_raw']), (3.10, 3.80))
+        self.assertIsNotNone(data['baseline']['reset_at'])
 
     def test_values_already_in_ppm_pass_through(self):
         data = post(self.client, inlet_ppm=550.0, outlet_ppm=275.0)['recorded']
         self.assertEqual((data['inlet_ppm'], data['outlet_ppm']), (550, 275))
 
     def test_sensors_are_not_swapped(self):
-        data = post(self.client, inlet_ppm=0.6, outlet_ppm=0.9)['recorded']
+        post(self.client, inlet_ppm=3.0, outlet_ppm=3.0)
+        data = post(self.client, inlet_ppm=3.0, outlet_ppm=4.5)['recorded']
         self.assertLess(data['inlet_ppm'], data['outlet_ppm'])
         self.assertEqual(data['efficiency'], 0.0)
 
@@ -48,43 +49,48 @@ class RealSensorReadingTests(unittest.TestCase):
     def test_relayed_values_pass_through(self):
         data = post(self.client, inlet_ppm=41.0, outlet_ppm=39.0, calibrated=True)['recorded']
         self.assertEqual((data['inlet_ppm'], data['outlet_ppm']), (41.0, 39.0))
+        self.assertIsNone(data['baseline'])
 
     def test_simulation_values_pass_through(self):
         data = self.client.post('/api/sensors/reading', json={'inlet_ppm': 450.0, 'outlet_ppm': 270.0, 'board_type': 'simulator', 'transport': 'simulation'}).json()['recorded']
         self.assertEqual((data['inlet_ppm'], data['outlet_ppm']), (450.0, 270.0))
 
-class SensorMatchingTests(unittest.TestCase):
+class BaselineTests(unittest.TestCase):
     def setUp(self):
         self.client = TestClient(main.app)
         main.sensor_issue.update(message=None, at=None)
-        main.rematch_sensors()
+        main.reset_gas_baseline()
 
-    def match_in_same_air(self, s1=3.10, s2=3.80):
-        for _ in range(main.SENSOR_MATCH_READINGS):
-            last = post(self.client, inlet_ppm=s1, outlet_ppm=s2)['recorded']
-        return last
-
-    def test_same_air_reads_the_same_after_matching(self):
-        data = self.match_in_same_air()
-        self.assertAlmostEqual(data['outlet_ppm'], data['inlet_ppm'], delta=2)
-        self.assertAlmostEqual(data['sensor_match']['factor'], 3.10 / 3.80, delta=0.01)
+    def test_clean_air_heater_drift_returns_to_fresh_air(self):
+        # Observed on the chamber: clean-air raw readings tripled (3.4 -> 11.5) over 20 minutes of heater warm-up.
+        for i in range(600):
+            raw = 3.4 + (11.5 - 3.4) * i / 600
+            main.baseline_ppm('inlet', raw); main.baseline_ppm('outlet', raw * 1.1)
+        for _ in range(150):
+            data = post(self.client, inlet_ppm=11.5, outlet_ppm=12.65)['recorded']
+        self.assertAlmostEqual(data['inlet_ppm'], 400, delta=10)
+        self.assertAlmostEqual(data['outlet_ppm'], 400, delta=10)
 
     def test_smoke_at_intake_puts_sensor_1_above_sensor_2(self):
-        self.match_in_same_air()
-        data = post(self.client, inlet_ppm=3.97, outlet_ppm=4.17)['recorded']  # the agarbathi test: S1 +28%, S2 +10%
+        for _ in range(20):
+            post(self.client, inlet_ppm=3.10, outlet_ppm=3.80)
+        data = post(self.client, inlet_ppm=3.97, outlet_ppm=4.18)['recorded']  # the agarbathi test: S1 +28%, S2 +10%
         self.assertGreater(data['inlet_ppm'], data['outlet_ppm'])
         self.assertGreater(data['efficiency'], 10)
 
-    def test_readings_before_matching_completes_are_unchanged(self):
-        data = post(self.client, inlet_ppm=3.10, outlet_ppm=3.80)['recorded']
-        self.assertEqual((data['inlet_ppm'], data['outlet_ppm']), (369, 452))
-        self.assertEqual(data['sensor_match']['progress'], 1)
+    def test_below_fresh_air_is_corrected_quickly(self):
+        post(self.client, inlet_ppm=4.0, outlet_ppm=4.0)
+        for _ in range(15):
+            data = post(self.client, inlet_ppm=3.0, outlet_ppm=3.0)['recorded']
+        self.assertGreaterEqual(data['inlet_ppm'], 380)
 
-    def test_rematch_endpoint_and_restart_detection(self):
-        self.match_in_same_air()
-        self.assertEqual(self.client.post('/api/sensors/match').json()['status'], 'matching')
-        self.assertIsNone(main.sensor_match['factor'])
+    def test_reset_endpoint_and_restart_detection(self):
+        post(self.client, inlet_ppm=3.0, outlet_ppm=3.0)
+        self.assertEqual(self.client.post('/api/sensors/reset-baseline').json()['status'], 'reset')
+        self.assertIsNone(main.gas_baseline['inlet'])
         self.assertEqual(main.sensor_telemetry_history, [])
+        data = post(self.client, inlet_ppm=9.0, outlet_ppm=10.0)['recorded']
+        self.assertEqual((data['inlet_ppm'], data['outlet_ppm']), (400, 400))
         self.assertTrue(main.is_board_restart_line('rst:0x1 (POWERON_RESET),boot:0x17'))
         self.assertTrue(main.is_board_restart_line('Connecting to Wi-Fi: hotspot'))
         self.assertFalse(main.is_board_restart_line('{"inlet_ppm":3.1,"outlet_ppm":3.8}'))

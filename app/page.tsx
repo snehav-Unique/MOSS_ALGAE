@@ -538,7 +538,7 @@ type SensorTelemetry = {
   board_type: 'arduino' | 'esp32' | 'simulator';
   transport: 'wired' | 'wifi' | 'bluetooth' | 'simulation';
   timestamp: string;
-  sensor_match?: {factor: number | null; matched_at: string | null; progress: number; needed: number} | null;
+  baseline?: {reset_at: string | null; settle_seconds: number} | null;
   health: {
     moss_status: string;
     moss_alert: string | null;
@@ -643,12 +643,12 @@ function ChamberSensors({mossEfficiency,algaeEfficiency,onApplyEfficiency}:{moss
 
   const deviceDisconnected = !connected && Boolean(live);
 
-  const matchSensors = async () => {
+  const resetBaseline = async () => {
     setMatchRequested(true);
     try {
-      await fetch(`${API}/api/sensors/match`, {method: 'POST'});
+      await fetch(`${API}/api/sensors/reset-baseline`, {method: 'POST'});
     } finally {
-      setTimeout(() => setMatchRequested(false), 30000);
+      setTimeout(() => setMatchRequested(false), 4000);
     }
   };
 
@@ -1098,14 +1098,12 @@ function ChamberSensors({mossEfficiency,algaeEfficiency,onApplyEfficiency}:{moss
       <div className="chamber-alert-box" role="status"><strong>Sensor status:</strong> {sensorIssue}</div>
     )}
 
-    {(live?.sensor_match || hardware?.active) && (
+    {(live?.baseline || hardware?.active) && (
       <div className="match-bar">
-        <span>{live?.sensor_match?.factor
-          ? `Sensors matched in the same air at ${live.sensor_match.matched_at ? new Date(live.sensor_match.matched_at).toLocaleTimeString() : '—'} · exhaust reading × ${live.sensor_match.factor.toFixed(2)} so both read alike in clean air.`
-          : `Matching the two sensors in the same air (${live?.sensor_match?.progress ?? 0}/${live?.sensor_match?.needed ?? 10})… keep smoke away until done.`}</span>
-        {hardware?.active && <button className="sensor-btn secondary" onClick={matchSensors} disabled={matchRequested}
-          title="Both sensors must be in the same clean air: measures their offset over the next ~30 seconds">
-          {matchRequested ? 'Matching…' : 'Match sensors'}</button>}
+        <span>{`Auto baseline${live?.baseline?.reset_at ? ` since ${new Date(live.baseline.reset_at).toLocaleTimeString()}` : ''}: each sensor slowly follows its own heater drift, so clean air settles back to ~400 ppm within a few minutes while smoke still shows at once.`}</span>
+        {hardware?.active && <button className="sensor-btn secondary" onClick={resetBaseline} disabled={matchRequested}
+          title="Use only in clean air: takes the current air as 400 ppm for both sensors right away">
+          {matchRequested ? 'Reset ✓' : 'Reset to fresh air'}</button>}
       </div>
     )}
 

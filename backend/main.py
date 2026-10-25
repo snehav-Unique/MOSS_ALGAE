@@ -667,40 +667,44 @@ def to_co2_ppm(value: float) -> float:
     return round(value * FRESH_AIR_CO2_PPM / STARTUP_RELATIVE_READING) if value < RELATIVE_SCALE_MAX else round(value)
 
 
-# Sensor matching: no two MQ-135s read alike, and the sketch sets each one's reference in the first 1.5 s after
-# power-on while the heaters are still cold, so in identical air the exhaust sensor can read ~20-30% above the
-# intake. While both see the same air, the average ratio intake/exhaust is measured once and applied to the
-# exhaust reading, so the difference between the two reflects the filter, not the sensors.
-SENSOR_MATCH_READINGS = 15  # ~30 s at one reading per 2 s
-sensor_match: dict = {'factor': None, 'samples': [], 'at': None}
+# Automatic baseline correction. The sketch sets each MQ-135's reference in the first 1.5 s after power-on,
+# while its heater is still cold; as the heaters warm up (30+ minutes) the readings climb on their own, e.g.
+# from ~400 to ~1,300 ppm in clean air. Each sensor therefore keeps its own baseline: it starts at the first
+# reading (= fresh air, 400 ppm) and slowly follows the sensor's drift, so clean air keeps reading ~400 ppm
+# while fast changes such as smoke or breath (seconds) still show. Readings below fresh air are impossible,
+# so those pull the baseline down quickly. Correcting each sensor to its own baseline also removes the
+# sensor-to-sensor difference between intake and exhaust.
+BASELINE_TRACK_RATE = 0.02     # share of the gap followed per reading: ~100 s time constant at one reading per 2 s
+BASELINE_FAST_RATE = 0.3       # for readings below fresh air
+BASELINE_FLOOR_PPM = 380.0
+gas_baseline: dict = {'inlet': None, 'outlet': None, 'reset_at': None}
 
 
-def match_exhaust(intake_ppm: float, exhaust_ppm: float) -> float:
-    if sensor_match['factor'] is None:
-        if intake_ppm > 0 and exhaust_ppm > 0:
-            sensor_match['samples'].append((intake_ppm, exhaust_ppm))
-        if len(sensor_match['samples']) < SENSOR_MATCH_READINGS:
-            return exhaust_ppm
-        # Median ratio, so a few readings disturbed by a passing puff of smoke do not skew the match.
-        ratios = [a / b for a, b in sensor_match['samples']]
-        sensor_match.update(factor=statistics.median(ratios), samples=[], at=datetime.now(timezone.utc).isoformat())
-    return round(exhaust_ppm * sensor_match['factor'])
+def baseline_ppm(key: str, raw: float) -> int:
+    baseline = gas_baseline[key]
+    if not baseline or baseline <= 0:
+        baseline = gas_baseline[key] = raw
+        gas_baseline['reset_at'] = gas_baseline['reset_at'] or datetime.now(timezone.utc).isoformat()
+    ppm = raw * FRESH_AIR_CO2_PPM / baseline
+    rate = BASELINE_FAST_RATE if ppm < BASELINE_FLOOR_PPM else BASELINE_TRACK_RATE
+    gas_baseline[key] = baseline + rate * (raw - baseline)
+    return round(ppm)
 
 
-@app.post('/api/sensors/match')
-def rematch_sensors():
-    """Re-measure the exhaust/intake sensor offset over the next readings (both sensors in the same clean air).
-    Older readings were taken with the previous offset, so they are cleared too."""
-    sensor_match.update(factor=None, samples=[], at=None)
+@app.post('/api/sensors/reset-baseline')
+def reset_gas_baseline():
+    """Take the current air as fresh air (400 ppm) for both gas sensors from the next reading on.
+    Older readings were on the previous baseline, so they are cleared too."""
+    gas_baseline.update(inlet=None, outlet=None, reset_at=None)
     sensor_telemetry_history.clear()
-    return {'status': 'matching', 'readings_needed': SENSOR_MATCH_READINGS}
+    return {'status': 'reset'}
 
 
 BOARD_RESTART_MARKERS = ('rst:', 'ets ', 'Connecting to Wi-Fi')
 
 
 def is_board_restart_line(line: str) -> bool:
-    """ESP32 boot output: the sketch has just reset each sensor's reference, so the sensors must be matched again."""
+    """ESP32 boot output: the sketch has just reset each sensor's reference, so the baselines start again."""
     return not line.startswith('{') and any(marker in line for marker in BOARD_RESTART_MARKERS)
 
 
@@ -725,9 +729,10 @@ def ingest_sensor_reading(reading: SensorReading):
         if reading.calibrated:
             pre_filter, post_filter = raw1, raw2  # already ppm CO2 (relayed from the laptop)
         else:
-            pre_filter, post_filter = to_co2_ppm(raw1), to_co2_ppm(raw2)
-            if max(raw1, raw2) < RELATIVE_SCALE_MAX:  # relative MQ-135 sketch output needs matching; ppm firmware does not
-                post_filter = match_exhaust(pre_filter, post_filter)
+            if max(raw1, raw2) < RELATIVE_SCALE_MAX:  # relative MQ-135 sketch output; ppm firmware needs no baseline
+                pre_filter, post_filter = baseline_ppm('inlet', raw1), baseline_ppm('outlet', raw2)
+            else:
+                pre_filter, post_filter = to_co2_ppm(raw1), to_co2_ppm(raw2)
         sensor_issue.update(message=None, at=None)
 
     # Measured single-pass efficiency %: (intake - exhaust) / intake * 100
@@ -753,11 +758,9 @@ def ingest_sensor_reading(reading: SensorReading):
         "health": health,
         "inlet_raw": raw1,
         "outlet_raw": raw2,
-        "sensor_match": None if reading.board_type == "simulator" or reading.calibrated else {
-            "factor": round(sensor_match['factor'], 3) if sensor_match['factor'] else None,
-            "matched_at": sensor_match['at'],
-            "progress": len(sensor_match['samples']),
-            "needed": SENSOR_MATCH_READINGS,
+        "baseline": None if reading.board_type == "simulator" or reading.calibrated else {
+            "reset_at": gas_baseline['reset_at'],
+            "settle_seconds": round(2 / BASELINE_TRACK_RATE),
         },
     }
 
@@ -843,13 +846,13 @@ def serial_auto_scanner_loop():
                         hardware_serial_state["port"] = candidate_port
                         # Plain ASCII: on Windows an emoji here raises UnicodeEncodeError when output is redirected, killing the reader.
                         print(f"[AUTO-SERIAL] Physical board connected on {candidate_port} ({candidate_desc})", flush=True)
-                        rematch_sensors()
+                        reset_gas_baseline()
                         while True:
                             line = ser.readline().decode('utf-8', errors='ignore').strip()
                             if not line:
                                 continue
                             if is_board_restart_line(line):
-                                rematch_sensors()
+                                reset_gas_baseline()
                                 continue
                             if line.startswith('{') and line.endswith('}'):
                                 try:
