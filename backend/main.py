@@ -669,33 +669,49 @@ def to_co2_ppm(value: float) -> float:
 
 # Automatic baseline correction. The sketch sets each MQ-135's reference in the first 1.5 s after power-on,
 # while its heater is still cold; as the heaters warm up (30+ minutes) the readings climb on their own, e.g.
-# from ~400 to ~1,300 ppm in clean air. Each sensor therefore keeps its own baseline: it starts at the first
-# reading (= fresh air, 400 ppm) and slowly follows the sensor's drift, so clean air keeps reading ~400 ppm
-# while fast changes such as smoke or breath (seconds) still show. Readings below fresh air are impossible,
-# so those pull the baseline down quickly. Correcting each sensor to its own baseline also removes the
-# sensor-to-sensor difference between intake and exhaust.
+# from ~400 to ~1,300 ppm in clean air. The intake sensor's baseline starts at the first reading (= fresh air,
+# 400 ppm) and slowly follows its drift, so clean air keeps reading ~400 ppm while fast changes such as smoke
+# (seconds) still show; intake readings below fresh air are impossible, so those pull it down quickly.
+# Both heaters drift alike (3.4 -> 11.5 and 3.8 -> 12.2 on the chamber), so the exhaust sensor uses the same
+# drift with the sensor-to-sensor ratio measured at the first reading, when both are in the same air. A lasting
+# drop at the exhaust, i.e. air really cleaned by the filter, is therefore kept and not tracked away.
 BASELINE_TRACK_RATE = 0.02     # share of the gap followed per reading: ~100 s time constant at one reading per 2 s
-BASELINE_FAST_RATE = 0.3       # for readings below fresh air
+BASELINE_FAST_RATE = 0.3       # for intake readings below fresh air
 BASELINE_FLOOR_PPM = 380.0
-gas_baseline: dict = {'inlet': None, 'outlet': None, 'reset_at': None}
+gas_baseline: dict = {'inlet': None, 'ratio': None, 'reset_at': None}
+
+# MQ-135 outputs always jitter a little; the exact same pair for this many readings (~30 s) means the board
+# or a sensor has stopped updating.
+STATIC_READINGS = 15
+sensor_repeat: dict = {'last': None, 'count': 0}
 
 
-def baseline_ppm(key: str, raw: float) -> int:
-    baseline = gas_baseline[key]
-    if not baseline or baseline <= 0:
-        baseline = gas_baseline[key] = raw
-        gas_baseline['reset_at'] = gas_baseline['reset_at'] or datetime.now(timezone.utc).isoformat()
-    ppm = raw * FRESH_AIR_CO2_PPM / baseline
-    rate = BASELINE_FAST_RATE if ppm < BASELINE_FLOOR_PPM else BASELINE_TRACK_RATE
-    gas_baseline[key] = baseline + rate * (raw - baseline)
-    return round(ppm)
+def baseline_ppm_pair(raw1: float, raw2: float) -> tuple[int, int]:
+    if not gas_baseline['inlet'] or gas_baseline['inlet'] <= 0:
+        gas_baseline.update(inlet=raw1, ratio=raw2 / raw1 if raw1 > 0 else 1.0,
+                            reset_at=datetime.now(timezone.utc).isoformat())
+    intake_base = gas_baseline['inlet']
+    exhaust_base = intake_base * gas_baseline['ratio']
+    intake = raw1 * FRESH_AIR_CO2_PPM / intake_base
+    exhaust = raw2 * FRESH_AIR_CO2_PPM / exhaust_base if exhaust_base > 0 else 0.0
+    rate = BASELINE_FAST_RATE if intake < BASELINE_FLOOR_PPM else BASELINE_TRACK_RATE
+    gas_baseline['inlet'] = intake_base + rate * (raw1 - intake_base)
+    return round(intake), round(exhaust)
+
+
+def note_static_readings(raw1: float, raw2: float) -> bool:
+    pair = (raw1, raw2)
+    sensor_repeat['count'] = sensor_repeat['count'] + 1 if pair == sensor_repeat['last'] else 0
+    sensor_repeat['last'] = pair
+    return sensor_repeat['count'] >= STATIC_READINGS
 
 
 @app.post('/api/sensors/reset-baseline')
 def reset_gas_baseline():
-    """Take the current air as fresh air (400 ppm) for both gas sensors from the next reading on.
-    Older readings were on the previous baseline, so they are cleared too."""
-    gas_baseline.update(inlet=None, outlet=None, reset_at=None)
+    """Take the current air as fresh air (400 ppm) for both gas sensors from the next reading on; both must be
+    in the same clean air. Older readings were on the previous baseline, so they are cleared too."""
+    gas_baseline.update(inlet=None, ratio=None, reset_at=None)
+    sensor_repeat.update(last=None, count=0)
     sensor_telemetry_history.clear()
     return {'status': 'reset'}
 
@@ -730,10 +746,16 @@ def ingest_sensor_reading(reading: SensorReading):
             pre_filter, post_filter = raw1, raw2  # already ppm CO2 (relayed from the laptop)
         else:
             if max(raw1, raw2) < RELATIVE_SCALE_MAX:  # relative MQ-135 sketch output; ppm firmware needs no baseline
-                pre_filter, post_filter = baseline_ppm('inlet', raw1), baseline_ppm('outlet', raw2)
+                pre_filter, post_filter = baseline_ppm_pair(raw1, raw2)
             else:
                 pre_filter, post_filter = to_co2_ppm(raw1), to_co2_ppm(raw2)
-        sensor_issue.update(message=None, at=None)
+        if note_static_readings(raw1, raw2):
+            if not sensor_issue['message'] or 'not changed' not in sensor_issue['message']:
+                sensor_issue.update(message=f"Gas readings have not changed for {STATIC_READINGS * 2} s (stuck at {raw1} / {raw2}). "
+                                            "Check the MQ-135 AOUT wires and power, or press EN on the ESP32.",
+                                    at=datetime.now(timezone.utc).isoformat())
+        else:
+            sensor_issue.update(message=None, at=None)
 
     # Measured single-pass efficiency %: (intake - exhaust) / intake * 100
     eff = max(0.0, min(100.0, (pre_filter - post_filter) / pre_filter * 100.0)) if pre_filter > 0 else 0.0

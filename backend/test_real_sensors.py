@@ -65,7 +65,7 @@ class BaselineTests(unittest.TestCase):
         # Observed on the chamber: clean-air raw readings tripled (3.4 -> 11.5) over 20 minutes of heater warm-up.
         for i in range(600):
             raw = 3.4 + (11.5 - 3.4) * i / 600
-            main.baseline_ppm('inlet', raw); main.baseline_ppm('outlet', raw * 1.1)
+            main.baseline_ppm_pair(raw, raw * 1.1)
         for _ in range(150):
             data = post(self.client, inlet_ppm=11.5, outlet_ppm=12.65)['recorded']
         self.assertAlmostEqual(data['inlet_ppm'], 400, delta=10)
@@ -83,6 +83,21 @@ class BaselineTests(unittest.TestCase):
         for _ in range(15):
             data = post(self.client, inlet_ppm=3.0, outlet_ppm=3.0)['recorded']
         self.assertGreaterEqual(data['inlet_ppm'], 380)
+
+    def test_air_cleaned_by_the_filter_stays_lower_at_the_exhaust(self):
+        post(self.client, inlet_ppm=3.0, outlet_ppm=3.3)  # reset with both sensors in the same air
+        for _ in range(300):  # 10 minutes of the filter removing 20%
+            data = post(self.client, inlet_ppm=3.0, outlet_ppm=3.3 * 0.8)['recorded']
+        self.assertAlmostEqual(data['inlet_ppm'], 400, delta=5)
+        self.assertAlmostEqual(data['outlet_ppm'], 320, delta=5)
+        self.assertGreater(data['efficiency'], 15)
+
+    def test_stuck_readings_are_reported(self):
+        for _ in range(main.STATIC_READINGS + 1):
+            post(self.client, inlet_ppm=3.0, outlet_ppm=3.0)
+        self.assertIn('not changed', self.client.get('/api/sensors/live').json()['sensor_issue'])
+        post(self.client, inlet_ppm=3.01, outlet_ppm=3.0)
+        self.assertIsNone(self.client.get('/api/sensors/live').json()['sensor_issue'])
 
     def test_reset_endpoint_and_restart_detection(self):
         post(self.client, inlet_ppm=3.0, outlet_ppm=3.0)
