@@ -1050,7 +1050,7 @@ function ChamberSensors({mossEfficiency,algaeEfficiency,onApplyEfficiency}:{moss
           {live?.efficiency != null ? `${live.efficiency.toFixed(1)}%` : '—'}
         </div>
         <span style={{fontSize: '0.9rem', color: '#687766'}}>
-          {deltaPpm != null ? `Δ −${deltaPpm.toFixed(1)} ppm reduction` : 'Awaiting sensor delta'}
+          {deltaPpm == null ? 'Awaiting sensor delta' : deltaPpm > 0 ? `Δ −${deltaPpm.toFixed(1)} ppm reduction` : 'No removal measured right now (exhaust ≥ intake)'}
         </span>
         {live?.efficiency != null && (
           <button

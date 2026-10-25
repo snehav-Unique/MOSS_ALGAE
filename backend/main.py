@@ -661,8 +661,10 @@ async def test_telegram_alert():
 # so each sensor's average over the first readings after (re)calibration is taken as fresh air (400 ppm CO2).
 CALIBRATION_SAMPLES = 5
 BASELINE_FLOOR_PPM = 380.0   # below this the reference has drifted, not the air
-BASELINE_ADAPT_RATE = 0.3    # share of the gap closed per reading (~5 readings to settle)
-gas_calibration: dict = {'inlet': None, 'outlet': None, 'samples': [], 'at': None}
+BASELINE_ADAPT_RATE = 0.3    # quick correction of impossible below-fresh-air readings (~5 readings)
+DRIFT_TRACK_RATE = 0.007     # slow tracking of heater drift in both directions (~5 min at one reading per 2 s)
+SMOOTHING_READINGS = 3       # displayed ppm = average of the last readings, so noise does not swap the sensors
+gas_calibration: dict = {'inlet': None, 'outlet': None, 'samples': [], 'at': None, 'recent': {'inlet': [], 'outlet': []}}
 
 
 def calibrate_gas(raw1: float, raw2: float) -> Optional[tuple]:
@@ -675,14 +677,22 @@ def calibrate_gas(raw1: float, raw2: float) -> Optional[tuple]:
         gas_calibration.update(inlet=sum(a for a, _ in gas_calibration['samples']) / n,
                                outlet=sum(b for _, b in gas_calibration['samples']) / n,
                                samples=[], at=datetime.now(timezone.utc).isoformat())
-    # Automatic baseline correction: air cannot hold less CO2 than fresh outdoor air, so a reading below
-    # BASELINE_FLOOR_PPM means the sensor drifted (MQ-135 heaters settle for hours); ease that reference
-    # toward the current signal instead of reporting impossible values.
+    # Baseline correction, the same for both sensors. Each MQ-135 heater drifts on its own for hours, which
+    # otherwise outweighs the filter's effect and makes the exhaust read above the intake in identical air.
+    # A slow reference follow (minutes) cancels that drift; fast changes such as smoke or breath still show.
+    # Readings below fresh air are impossible, so those are corrected quickly.
+    shown = {}
     for key, raw in (('inlet', raw1), ('outlet', raw2)):
-        if raw > 0 and raw * FRESH_AIR_CO2_PPM / gas_calibration[key] < BASELINE_FLOOR_PPM:
-            gas_calibration[key] = gas_calibration[key] * (1 - BASELINE_ADAPT_RATE) + raw * BASELINE_ADAPT_RATE
-    return (round(raw1 * FRESH_AIR_CO2_PPM / gas_calibration['inlet'], 1),
-            round(raw2 * FRESH_AIR_CO2_PPM / gas_calibration['outlet'], 1))
+        reference = gas_calibration[key]
+        if raw > 0:
+            rate = BASELINE_ADAPT_RATE if raw * FRESH_AIR_CO2_PPM / reference < BASELINE_FLOOR_PPM else DRIFT_TRACK_RATE
+            reference = reference * (1 - rate) + raw * rate
+            gas_calibration[key] = reference
+        recent = gas_calibration['recent'][key]
+        recent.append(raw * FRESH_AIR_CO2_PPM / reference)
+        del recent[:-SMOOTHING_READINGS]
+        shown[key] = round(sum(recent) / len(recent), 1)
+    return shown['inlet'], shown['outlet']
 
 
 BOARD_RESTART_MARKERS = ('rst:', 'ets ', 'Connecting to Wi-Fi', 'INITIALIZED')
@@ -696,7 +706,7 @@ def is_board_restart_line(line: str) -> bool:
 @app.post('/api/sensors/calibrate')
 def recalibrate_sensors():
     """Take the current air as fresh air (400 ppm) for both gas sensors over the next readings."""
-    gas_calibration.update(inlet=None, outlet=None, samples=[], at=None)
+    gas_calibration.update(inlet=None, outlet=None, samples=[], at=None, recent={'inlet': [], 'outlet': []})
     return {'status': 'calibrating', 'samples_needed': CALIBRATION_SAMPLES}
 
 
