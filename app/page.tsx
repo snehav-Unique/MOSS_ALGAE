@@ -573,8 +573,11 @@ function ChamberSensors({mossEfficiency,algaeEfficiency,onApplyEfficiency}:{moss
   const [connected, setConnected] = useState(false);
   const [sensorIssue, setSensorIssue] = useState<string|null>(null);
   const [matchRequested, setMatchRequested] = useState(false);
-  // Each new reading (about every 2 s) updates the intake card first and the exhaust card EXHAUST_LAG_MS later.
+  // Fixed clock: every UPDATE_EVERY_MS the intake card, temperature and humidity show the latest reading;
+  // the exhaust card (and with it the efficiency) follows EXHAUST_LAG_MS later.
+  const UPDATE_EVERY_MS = 2000;
   const EXHAUST_LAG_MS = 1000;
+  const latestReading = useRef<SensorTelemetry|null>(null);
   const [shownGas, setShownGas] = useState<{inlet:number|null; outlet:number|null}>({inlet:null, outlet:null});
   const [shownClimate, setShownClimate] = useState<{temperature:number|null; humidity:number|null}>({temperature:null, humidity:null});
   const [poppedCard, setPoppedCard] = useState<'inlet'|'outlet'|null>(null);
@@ -610,20 +613,30 @@ function ChamberSensors({mossEfficiency,algaeEfficiency,onApplyEfficiency}:{moss
 
   // Zero readings come from a bad start-up reference and are skipped.
   useEffect(() => {
-    if (!live || (live.inlet_ppm === 0 && live.outlet_ppm === 0)) return;
+    if (live && !(live.inlet_ppm === 0 && live.outlet_ppm === 0)) latestReading.current = live;
+  }, [live?.timestamp]);
+
+  useEffect(() => {
+    const timers:Array<ReturnType<typeof setTimeout>> = [];
     const pop = (card:'inlet'|'outlet') => {
       setPoppedCard(card);
-      setTimeout(() => setPoppedCard(current => current === card ? null : current), 700);
+      timers.push(setTimeout(() => setPoppedCard(current => current === card ? null : current), 700));
     };
-    setShownGas(current => ({...current, inlet: live.inlet_ppm}));
-    setShownClimate({temperature: live.temperature, humidity: live.humidity});
-    pop('inlet');
-    const exhaust = setTimeout(() => {
-      setShownGas(current => ({...current, outlet: live.outlet_ppm}));
-      pop('outlet');
-    }, EXHAUST_LAG_MS);
-    return () => clearTimeout(exhaust);
-  }, [live?.timestamp]);
+    const update = () => {
+      const reading = latestReading.current;
+      if (!reading) return;
+      setShownGas(current => ({...current, inlet: reading.inlet_ppm}));
+      setShownClimate({temperature: reading.temperature, humidity: reading.humidity});
+      pop('inlet');
+      timers.push(setTimeout(() => {
+        setShownGas(current => ({...current, outlet: reading.outlet_ppm}));
+        pop('outlet');
+      }, EXHAUST_LAG_MS));
+    };
+    update();
+    const clock = setInterval(update, UPDATE_EVERY_MS);
+    return () => {clearInterval(clock); timers.forEach(clearTimeout)};
+  }, []);
 
   // Efficiency from the two numbers on the cards.
   const shownEfficiency = shownGas.inlet && shownGas.outlet != null ? Math.max(0, (shownGas.inlet - shownGas.outlet) / shownGas.inlet * 100) : null;
@@ -1035,7 +1048,7 @@ function ChamberSensors({mossEfficiency,algaeEfficiency,onApplyEfficiency}:{moss
         <div className="card-tag"><span>SENSOR 1 · INTAKE (MQ-135) <InfoTip label="About intake reading"><strong>Dirty air going in</strong>MQ-135 #1 at the chamber intake: the baseline the filter works against. It reacts to a mix of gases (ammonia, nitrogen oxides, benzene, smoke, CO₂) and reports an estimated ppm. Needs a 24–48 h warm-up and calibration; changes over time are more reliable than the absolute number.</InfoTip></span><small>MQ-135 #1 · {selectedBoard === 'esp32' ? 'GPIO34' : 'Pin A0'}</small></div>
         <h3>Sensor 1 · Intake</h3>
         <div className="reading-val">{deviceDisconnected ? 'Disconnected' : shownGas.inlet != null ? shownGas.inlet.toFixed(0) : '—'}{!deviceDisconnected && <small>ppm CO₂</small>}</div>
-        <small className="pop-next">{deviceDisconnected ? 'Waiting for the ESP32 to reconnect…' : live ? 'Updates with every reading (~2 s)' : ' '}</small>
+        <small className="pop-next">{deviceDisconnected ? 'Waiting for the ESP32 to reconnect…' : live ? 'Updates every 2 s' : ' '}</small>
         {deviceDisconnected ? <span className="co2-band" style={{background:'#8c948a'}}>Disconnected</span> : <Co2Band ppm={shownGas.inlet}/>}
       </article>
 
