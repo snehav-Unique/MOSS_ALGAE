@@ -46,6 +46,15 @@ Gas readings are shown as CO₂-equivalent ppm (start-up air = 400 ppm). The rel
 
 The owner console is a separate dependency-free Node app. It proxies only its own `/api/suggestions` request to `OWNER_API_URL` (default `http://127.0.0.1:8001`) and does not modify or restart the public dashboard on port 3000.
 
+### Deploy the owner console on Render
+
+Create two Render Web Services from this repository:
+
+1. **Owner API** — Python runtime, repository root, build command `pip install -r backend/requirements.txt`, start command `python -m uvicorn backend.main:app --host 0.0.0.0 --port $PORT`, and health check `/health`. Configure `FIREBASE_PROJECT_ID`, a strong `OWNER_DASHBOARD_KEY`, and `GOOGLE_APPLICATION_CREDENTIALS=/etc/secrets/firebase-service-account.json`. Upload the rotated Firebase Admin JSON as a Render secret file named `firebase-service-account.json`.
+2. **Owner dashboard** — Node runtime, root directory `owner-dashboard`, build command `npm install`, and start command `npm start`. Set `OWNER_API_URL` to the public HTTPS URL of the Owner API. The server automatically uses Render's `PORT` and binds publicly on Render while retaining ports 3001/8001 for local development.
+
+Never deploy the local development owner key or commit a Firebase Admin JSON file.
+
 Firebase credentials and the owner key are server-only. Never prefix them with `NEXT_PUBLIC_` or commit them to Git.
 
 ## Evidence boundaries
