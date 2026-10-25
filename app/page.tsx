@@ -602,8 +602,8 @@ function ChamberSensors({mossEfficiency,algaeEfficiency,onApplyEfficiency}:{moss
   const [calibrating, setCalibrating] = useState(false);
   // The intake card updates every INLET_EVERY_MS and the exhaust card OUTLET_LAG_MS after each intake update,
   // each showing the average of its readings since its last update, so numbers stay readable.
-  const INLET_EVERY_MS = 5000;
-  const OUTLET_LAG_MS = 3000;
+  const INLET_EVERY_MS = 2000;
+  const OUTLET_LAG_MS = 1000;
   const [shownGas, setShownGas] = useState<{inlet:number|null; outlet:number|null}>({inlet:null, outlet:null});
   const [poppedCard, setPoppedCard] = useState<'inlet'|'outlet'|null>(null);
   const [popCountdown, setPopCountdown] = useState<{inlet:number; outlet:number}>({inlet:0, outlet:0});
@@ -716,7 +716,7 @@ function ChamberSensors({mossEfficiency,algaeEfficiency,onApplyEfficiency}:{moss
   useEffect(() => {
     fetchLive();
     if (!autoPoll) return;
-    const interval = setInterval(fetchLive, 2000);
+    const interval = setInterval(fetchLive, 1000);
     return () => clearInterval(interval);
   }, [fetchLive, autoPoll]);
 

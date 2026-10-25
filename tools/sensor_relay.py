@@ -44,7 +44,8 @@ def main():
     parser.add_argument('--target', default=os.getenv('RELAY_TARGET_URL', ''), help='deployed app URL, e.g. https://your-app.vercel.app')
     parser.add_argument('--key', default=os.getenv('SENSOR_RELAY_KEY', ''), help='must match SENSOR_RELAY_KEY on Vercel')
     parser.add_argument('--local', default='http://127.0.0.1:8000', help='local backend that reads the ESP32')
-    parser.add_argument('--interval', type=float, default=5.0, help='seconds between forwards (Firestore free tier: keep >= 5)')
+    parser.add_argument('--interval', type=float, default=1.0,
+                        help='seconds between checks of the local backend; only new readings are sent (~1 per 2 s from the ESP32)')
     args = parser.parse_args()
     if not args.target or not args.key:
         sys.exit('Set --target (or RELAY_TARGET_URL) and --key (or SENSOR_RELAY_KEY).')

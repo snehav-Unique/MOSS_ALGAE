@@ -33,7 +33,7 @@ The laptop wired to the ESP32 runs the local backend (it reads USB) plus a relay
 2. On the laptop put the same `SENSOR_RELAY_KEY` and `RELAY_TARGET_URL=https://<your-app>.vercel.app` in `.env`.
 3. Run the local backend (`python -m uvicorn backend.main:app --port 8000`) and `python tools/sensor_relay.py`.
 
-Gas readings are shown as CO₂-equivalent ppm (start-up air = 400 ppm). The relay sends every 5 s to stay inside Firestore's free write quota.
+Gas readings are shown as CO₂-equivalent ppm (start-up air = 400 ppm). The relay forwards each new reading (about one every 2 s, ~1,800 Firestore writes per hour); the free tier allows 20,000 writes a day, so stop the relay when you are not demoing.
 
 ### Firebase suggestion storage
 

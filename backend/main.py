@@ -938,10 +938,10 @@ def relay_sensor_disconnect(x_relay_key: Optional[str] = Header(default=None)):
 
 
 def remote_live_state() -> Optional[dict]:
-    """Latest relayed readings from Firestore (deployed app only), cached for 2 s per instance."""
+    """Latest relayed readings from Firestore (deployed app only), cached for 1 s per instance."""
     if not os.getenv('FIREBASE_PROJECT_ID'):
         return None
-    if time.time() - _remote_cache['fetched'] < 2.0:
+    if time.time() - _remote_cache['fetched'] < 1.0:
         return _remote_cache['data']
     try:
         snapshot = live_sensor_doc().get()
