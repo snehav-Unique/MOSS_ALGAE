@@ -4,8 +4,8 @@ import {createServer} from 'node:http';
 import {extname, join, normalize} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
-const host = process.env.OWNER_DASHBOARD_HOST || '127.0.0.1';
-const port = Number(process.env.OWNER_DASHBOARD_PORT || 3001);
+const host = process.env.OWNER_DASHBOARD_HOST || (process.env.RENDER ? '0.0.0.0' : '127.0.0.1');
+const port = Number(process.env.PORT || process.env.OWNER_DASHBOARD_PORT || 3001);
 // A dedicated API instance on 8001 keeps this console independent from the
 // public dashboard and its API process on 3000/8000.
 const apiOrigin = (process.env.OWNER_API_URL || 'http://127.0.0.1:8001').replace(/\/$/, '');
