@@ -600,17 +600,10 @@ function ChamberSensors({mossEfficiency,algaeEfficiency,onApplyEfficiency}:{moss
   const [connected, setConnected] = useState(false);
   const [sensorIssue, setSensorIssue] = useState<string|null>(null);
   const [calibrating, setCalibrating] = useState(false);
-  // The intake card updates every INLET_EVERY_MS and the exhaust card OUTLET_LAG_MS after each intake update,
-  // each showing the average of its readings since its last update, so numbers stay readable.
-  const INLET_EVERY_MS = 2000;
-  const OUTLET_LAG_MS = 1000;
+  // Every new reading is shown as soon as it arrives: intake first, exhaust OUTLET_LAG_MS later.
+  const OUTLET_LAG_MS = 500;
   const [shownGas, setShownGas] = useState<{inlet:number|null; outlet:number|null}>({inlet:null, outlet:null});
   const [poppedCard, setPoppedCard] = useState<'inlet'|'outlet'|null>(null);
-  const [popCountdown, setPopCountdown] = useState<{inlet:number; outlet:number}>({inlet:0, outlet:0});
-  const gasBuffers = useRef<{inlet:number[]; outlet:number[]}>({inlet:[], outlet:[]});
-  const nextGasAt = useRef<{inlet:number; outlet:number}>({inlet:0, outlet:0});
-  const shownGasRef = useRef(shownGas);
-  shownGasRef.current = shownGas;
   const [refreshing, setRefreshing] = useState(false);
   const [simulating, setSimulating] = useState(false);
   const [simulationRunning, setSimulationRunning] = useState(false);
@@ -643,42 +636,18 @@ function ChamberSensors({mossEfficiency,algaeEfficiency,onApplyEfficiency}:{moss
 
   useEffect(() => {
     if (!live) return;
-    gasBuffers.current.inlet.push(live.inlet_ppm);
-    gasBuffers.current.outlet.push(live.outlet_ppm);
+    const pop = (card:'inlet'|'outlet') => {
+      setPoppedCard(card);
+      setTimeout(() => setPoppedCard(current => current === card ? null : current), 600);
+    };
+    setShownGas(current => ({...current, inlet: live.inlet_ppm}));
+    pop('inlet');
+    const exhaust = setTimeout(() => {
+      setShownGas(current => ({...current, outlet: live.outlet_ppm}));
+      pop('outlet');
+    }, OUTLET_LAG_MS);
+    return () => clearTimeout(exhaust);
   }, [live?.timestamp]);
-
-  useEffect(() => {
-    const tick = setInterval(() => {
-      const now = Date.now();
-      const buffers = gasBuffers.current;
-      if (!buffers.inlet.length && !buffers.outlet.length && shownGasRef.current.inlet == null) return;
-      const next = nextGasAt.current;
-      const show = (card:'inlet'|'outlet') => {
-        const values = buffers[card];
-        if (!values.length) return false;
-        const average = values.reduce((a, b) => a + b, 0) / values.length;
-        buffers[card] = [];
-        setShownGas(current => ({...current, [card]: average}));
-        setPoppedCard(card);
-        setTimeout(() => setPoppedCard(null), 900);
-        return true;
-      };
-      if (!next.inlet) next.inlet = now;
-      // Intake waits for an actual new reading; the exhaust is only scheduled after the intake has updated,
-      // so the order is always intake first, exhaust OUTLET_LAG_MS later.
-      if (now >= next.inlet && !next.outlet && show('inlet')) {
-        next.outlet = now + OUTLET_LAG_MS;
-        next.inlet = now + INLET_EVERY_MS;
-      }
-      if (next.outlet && now >= next.outlet) {
-        show('outlet');
-        next.outlet = 0;
-      }
-      const outletDue = next.outlet || next.inlet + OUTLET_LAG_MS;
-      setPopCountdown({inlet: Math.max(1, Math.ceil((next.inlet - now) / 1000)), outlet: Math.max(1, Math.ceil((outletDue - now) / 1000))});
-    }, 250);
-    return () => clearInterval(tick);
-  }, []);
 
   const deviceDisconnected = !connected && Boolean(live);
 
@@ -686,8 +655,7 @@ function ChamberSensors({mossEfficiency,algaeEfficiency,onApplyEfficiency}:{moss
     setCalibrating(true);
     try {
       await fetch(`${API}/api/sensors/calibrate`, {method: 'POST'});
-      // Start the cards fresh on the new scale instead of averaging old and new values.
-      gasBuffers.current = {inlet: [], outlet: []};
+      // Clear the cards until readings on the new scale arrive.
       setShownGas({inlet: null, outlet: null});
     } finally {
       setTimeout(() => setCalibrating(false), 10000);
@@ -1090,7 +1058,7 @@ function ChamberSensors({mossEfficiency,algaeEfficiency,onApplyEfficiency}:{moss
         <div className="card-tag"><span>SENSOR 1 · INTAKE (MQ-135) <InfoTip label="About intake reading"><strong>Dirty air going in</strong>MQ-135 #1 at the chamber intake: the baseline the filter works against. It reacts to a mix of gases (ammonia, nitrogen oxides, benzene, smoke, CO₂) and reports an estimated ppm. Needs a 24–48 h warm-up and calibration; changes over time are more reliable than the absolute number.</InfoTip></span><small>MQ-135 #1 · {selectedBoard === 'esp32' ? 'GPIO34' : 'Pin A0'}</small></div>
         <h3>Sensor 1 · Intake</h3>
         <div className="reading-val">{deviceDisconnected ? 'Disconnected' : shownGas.inlet != null ? shownGas.inlet.toFixed(0) : '—'}{!deviceDisconnected && <small>ppm CO₂</small>}</div>
-        <small className="pop-next">{deviceDisconnected ? 'Waiting for the ESP32 to reconnect…' : live ? `next update in ${popCountdown.inlet} s` : ' '}</small>
+        <small className="pop-next">{deviceDisconnected ? 'Waiting for the ESP32 to reconnect…' : live ? 'Live · new reading every ~2 s' : ' '}</small>
         {deviceDisconnected ? <span className="co2-band" style={{background:'#8c948a'}}>Disconnected</span> : <Co2Band ppm={shownGas.inlet}/>}
       </article>
 
@@ -1098,7 +1066,7 @@ function ChamberSensors({mossEfficiency,algaeEfficiency,onApplyEfficiency}:{moss
         <div className="card-tag"><span>SENSOR 2 · EXHAUST (MQ-135) <InfoTip label="About exhaust reading"><strong>Cleaned air coming out</strong>MQ-135 #2 at the exhaust, after both biological stages. Same sensor type as the intake, so the two are directly comparable. Lower than the intake means pollutants are being captured inside the chamber.</InfoTip></span><small>MQ-135 #2 · {selectedBoard === 'esp32' ? 'GPIO35' : 'Pin A1'}</small></div>
         <h3>Sensor 2 · Exhaust</h3>
         <div className="reading-val">{deviceDisconnected ? 'Disconnected' : shownGas.outlet != null ? shownGas.outlet.toFixed(0) : '—'}{!deviceDisconnected && <small>ppm CO₂</small>}</div>
-        <small className="pop-next">{deviceDisconnected ? 'Waiting for the ESP32 to reconnect…' : live ? `next update in ${popCountdown.outlet} s` : ' '}</small>
+        <small className="pop-next">{deviceDisconnected ? 'Waiting for the ESP32 to reconnect…' : live ? 'Live · new reading every ~2 s' : ' '}</small>
         {deviceDisconnected ? <span className="co2-band" style={{background:'#8c948a'}}>Disconnected</span> : <Co2Band ppm={shownGas.outlet}/>}
       </article>
 
