@@ -547,33 +547,6 @@ type SensorTelemetry = {
   };
 };
 
-/** Normalize a telemetry sample: higher PPM = pre-filter (inlet), lower = post-filter (outlet). */
-function normalizeSample(item: SensorTelemetry): SensorTelemetry {
-  if (!item) return item;
-  let pre = Math.max(item.inlet_ppm, item.outlet_ppm);
-  let post = Math.min(item.inlet_ppm, item.outlet_ppm);
-
-  // Calibrate uncalibrated/floating hardware ADC readings into realistic ranges:
-  if (pre > 1000.0 || pre < 50.0 || post > 800.0) {
-    const ratio = (pre > 0 && post < pre) ? Math.max(0.20, Math.min(0.65, (pre - post) / pre)) : 0.50;
-    pre = 550.0;
-    post = Math.max(250.0, Math.min(300.0, Number((pre * (1.0 - ratio)).toFixed(1))));
-  }
-
-  const eff = pre > 0 ? Math.max(0, Math.min(95, ((pre - post) / pre) * 100)) : 0;
-  const temp = (item.temperature != null && item.temperature > 0 && item.temperature < 80.0) ? item.temperature : 28.0;
-  const hum = (item.humidity != null && item.humidity > 0 && item.humidity <= 100.0) ? item.humidity : 64.0;
-
-  return {
-    ...item,
-    inlet_ppm: Number(pre.toFixed(1)),
-    outlet_ppm: Number(post.toFixed(1)),
-    efficiency: Number(eff.toFixed(1)),
-    temperature: temp,
-    humidity: hum,
-  };
-}
-
 type HardwareState = {
   active: boolean;
   port: string | null;
@@ -671,8 +644,8 @@ function ChamberSensors({mossEfficiency,algaeEfficiency,onApplyEfficiency}:{moss
         setConnected(Boolean(data.connected));
         setSensorIssue(data.sensor_issue ?? null);
         if (data.hardware) setHardware(data.hardware);
-        if (data.latest) setLive(normalizeSample(data.latest));
-        if (data.history) setHistory((data.history as SensorTelemetry[]).map(normalizeSample));
+        if (data.latest) setLive(data.latest);
+        if (data.history) setHistory(data.history as SensorTelemetry[]);
       }
     } catch {
       // Backend service not reachable
@@ -840,7 +813,7 @@ function ChamberSensors({mossEfficiency,algaeEfficiency,onApplyEfficiency}:{moss
       });
       if (res.ok) {
         const data = await res.json();
-        const sample = normalizeSample(data.recorded as SensorTelemetry);
+        const sample = data.recorded as SensorTelemetry;
         setConnected(true);
         setLive(sample);
         setHistory(curr => [...curr.filter(item => item.timestamp !== sample.timestamp).slice(-59), sample]);

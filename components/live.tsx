@@ -53,18 +53,12 @@ export function LiveProvider({children}:{children:ReactNode}) {
     const poll = () => fetch(`${API}/api/sensors/live`).then(r => r.ok ? r.json() : null).then(data => {
       if (!active || !data) return;
       const latest = data.latest;
-      const rawInlet = latest?.inlet_ppm ?? null;
-      const rawOutlet = latest?.outlet_ppm ?? null;
-      let inlet = (rawInlet != null && rawOutlet != null) ? Math.max(rawInlet, rawOutlet) : rawInlet;
-      let outlet = (rawInlet != null && rawOutlet != null) ? Math.min(rawInlet, rawOutlet) : rawOutlet;
-      if (inlet != null && (inlet > 1000.0 || inlet < 50.0 || (outlet != null && outlet > 800.0))) {
-        const ratio = (outlet != null && inlet > 0 && outlet < inlet) ? Math.max(0.20, Math.min(0.65, (inlet - outlet) / inlet)) : 0.50;
-        inlet = 550.0;
-        outlet = Math.max(250.0, Math.min(300.0, Number((inlet * (1.0 - ratio)).toFixed(1))));
-      }
-      const eff = (inlet != null && outlet != null && inlet > 0) ? Math.max(0, Math.min(95, ((inlet - outlet) / inlet) * 100)) : (latest?.efficiency ?? null);
-      const temp = (latest?.temperature != null && latest?.temperature > 0 && latest?.temperature < 80.0) ? latest.temperature : 28.0;
-      const hum = (latest?.humidity != null && latest?.humidity > 0 && latest?.humidity <= 100.0) ? latest.humidity : 64.0;
+      // Show the backend's readings as they are (calibrated ppm CO2; missing DHT22 values stay missing).
+      const inlet = latest?.inlet_ppm ?? null;
+      const outlet = latest?.outlet_ppm ?? null;
+      const eff = latest?.efficiency ?? null;
+      const temp = latest?.temperature ?? null;
+      const hum = latest?.humidity ?? null;
       setChamber({connected:Boolean(data.connected), efficiency:eff, inlet, outlet,
         temperature:temp, humidity:hum, timestamp:latest?.timestamp ?? null, simulated:latest?.board_type === 'simulator' || String(latest?.device_id ?? '').includes('sim'),
         board:latest?.board_type ?? null, transport:latest?.transport ?? null});
