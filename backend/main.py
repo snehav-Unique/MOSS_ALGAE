@@ -689,8 +689,10 @@ def match_exhaust(intake_ppm: float, exhaust_ppm: float) -> float:
 
 @app.post('/api/sensors/match')
 def rematch_sensors():
-    """Re-measure the exhaust/intake sensor offset over the next readings (both sensors in the same clean air)."""
+    """Re-measure the exhaust/intake sensor offset over the next readings (both sensors in the same clean air).
+    Older readings were taken with the previous offset, so they are cleared too."""
     sensor_match.update(factor=None, samples=[], at=None)
+    sensor_telemetry_history.clear()
     return {'status': 'matching', 'readings_needed': SENSOR_MATCH_READINGS}
 
 

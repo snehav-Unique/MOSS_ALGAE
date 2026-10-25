@@ -573,17 +573,11 @@ function ChamberSensors({mossEfficiency,algaeEfficiency,onApplyEfficiency}:{moss
   const [connected, setConnected] = useState(false);
   const [sensorIssue, setSensorIssue] = useState<string|null>(null);
   const [matchRequested, setMatchRequested] = useState(false);
-  // Same behaviour as the standalone ESP32 dashboard: the two gas cards take turns, one updating every HOLD_MS,
-  // each showing the average of its readings since its own last update; efficiency and climate follow the cards.
-  const HOLD_MS = 5000;
+  // Each new reading (about every 2 s) updates the intake card first and the exhaust card EXHAUST_LAG_MS later.
+  const EXHAUST_LAG_MS = 1000;
   const [shownGas, setShownGas] = useState<{inlet:number|null; outlet:number|null}>({inlet:null, outlet:null});
   const [shownClimate, setShownClimate] = useState<{temperature:number|null; humidity:number|null}>({temperature:null, humidity:null});
   const [poppedCard, setPoppedCard] = useState<'inlet'|'outlet'|null>(null);
-  const [gasCountdown, setGasCountdown] = useState<{inlet:number; outlet:number}>({inlet:0, outlet:0});
-  const gasBuffers = useRef<{inlet:number[]; outlet:number[]}>({inlet:[], outlet:[]});
-  const gasTurn = useRef<'inlet'|'outlet'>('inlet');
-  const nextGasSwitch = useRef(0);
-  const latestLive = useRef<SensorTelemetry|null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [simulating, setSimulating] = useState(false);
   const [simulationRunning, setSimulationRunning] = useState(false);
@@ -614,44 +608,24 @@ function ChamberSensors({mossEfficiency,algaeEfficiency,onApplyEfficiency}:{moss
   const [telegramStatus, setTelegramStatus] = useState('');
   const [testingTelegram, setTestingTelegram] = useState(false);
 
-  // Each new reading goes into both averaging buffers (zero readings come from a bad start-up reference and are skipped).
+  // Zero readings come from a bad start-up reference and are skipped.
   useEffect(() => {
-    if (!live) return;
-    latestLive.current = live;
-    if (live.inlet_ppm === 0 && live.outlet_ppm === 0) return;
-    gasBuffers.current.inlet.push(live.inlet_ppm);
-    gasBuffers.current.outlet.push(live.outlet_ppm);
+    if (!live || (live.inlet_ppm === 0 && live.outlet_ppm === 0)) return;
+    const pop = (card:'inlet'|'outlet') => {
+      setPoppedCard(card);
+      setTimeout(() => setPoppedCard(current => current === card ? null : current), 700);
+    };
+    setShownGas(current => ({...current, inlet: live.inlet_ppm}));
+    setShownClimate({temperature: live.temperature, humidity: live.humidity});
+    pop('inlet');
+    const exhaust = setTimeout(() => {
+      setShownGas(current => ({...current, outlet: live.outlet_ppm}));
+      pop('outlet');
+    }, EXHAUST_LAG_MS);
+    return () => clearTimeout(exhaust);
   }, [live?.timestamp]);
 
-  useEffect(() => {
-    const tick = setInterval(() => {
-      if (!latestLive.current) return;
-      const now = Date.now();
-      if (!nextGasSwitch.current) nextGasSwitch.current = now;
-      if (now >= nextGasSwitch.current) {
-        const card = gasTurn.current;
-        const values = gasBuffers.current[card];
-        if (values.length) {
-          const average = Math.round(values.reduce((a, b) => a + b, 0) / values.length);
-          setShownGas(current => ({...current, [card]: average}));
-        }
-        gasBuffers.current[card] = [];
-        setShownClimate({temperature: latestLive.current.temperature, humidity: latestLive.current.humidity});
-        setPoppedCard(card);
-        setTimeout(() => setPoppedCard(current => current === card ? null : current), 900);
-        gasTurn.current = card === 'inlet' ? 'outlet' : 'inlet';
-        nextGasSwitch.current = now + HOLD_MS;
-      }
-      const wait = nextGasSwitch.current - now;
-      const seconds = (ms:number) => Math.max(1, Math.ceil(ms / 1000));
-      setGasCountdown(gasTurn.current === 'inlet'
-        ? {inlet: seconds(wait), outlet: seconds(wait + HOLD_MS)}
-        : {inlet: seconds(wait + HOLD_MS), outlet: seconds(wait)});
-    }, 250);
-    return () => clearInterval(tick);
-  }, []);
-
-  // Efficiency from the two numbers on the cards, exactly as the standalone dashboard computes it.
+  // Efficiency from the two numbers on the cards.
   const shownEfficiency = shownGas.inlet && shownGas.outlet != null ? Math.max(0, (shownGas.inlet - shownGas.outlet) / shownGas.inlet * 100) : null;
 
   const deviceDisconnected = !connected && Boolean(live);
@@ -1061,7 +1035,7 @@ function ChamberSensors({mossEfficiency,algaeEfficiency,onApplyEfficiency}:{moss
         <div className="card-tag"><span>SENSOR 1 · INTAKE (MQ-135) <InfoTip label="About intake reading"><strong>Dirty air going in</strong>MQ-135 #1 at the chamber intake: the baseline the filter works against. It reacts to a mix of gases (ammonia, nitrogen oxides, benzene, smoke, CO₂) and reports an estimated ppm. Needs a 24–48 h warm-up and calibration; changes over time are more reliable than the absolute number.</InfoTip></span><small>MQ-135 #1 · {selectedBoard === 'esp32' ? 'GPIO34' : 'Pin A0'}</small></div>
         <h3>Sensor 1 · Intake</h3>
         <div className="reading-val">{deviceDisconnected ? 'Disconnected' : shownGas.inlet != null ? shownGas.inlet.toFixed(0) : '—'}{!deviceDisconnected && <small>ppm CO₂</small>}</div>
-        <small className="pop-next">{deviceDisconnected ? 'Waiting for the ESP32 to reconnect…' : live ? `next update in ${gasCountdown.inlet} s` : ' '}</small>
+        <small className="pop-next">{deviceDisconnected ? 'Waiting for the ESP32 to reconnect…' : live ? 'Updates with every reading (~2 s)' : ' '}</small>
         {deviceDisconnected ? <span className="co2-band" style={{background:'#8c948a'}}>Disconnected</span> : <Co2Band ppm={shownGas.inlet}/>}
       </article>
 
@@ -1069,7 +1043,7 @@ function ChamberSensors({mossEfficiency,algaeEfficiency,onApplyEfficiency}:{moss
         <div className="card-tag"><span>SENSOR 2 · EXHAUST (MQ-135) <InfoTip label="About exhaust reading"><strong>Cleaned air coming out</strong>MQ-135 #2 at the exhaust, after both biological stages. Same sensor type as the intake, so the two are directly comparable. Lower than the intake means pollutants are being captured inside the chamber.</InfoTip></span><small>MQ-135 #2 · {selectedBoard === 'esp32' ? 'GPIO35' : 'Pin A1'}</small></div>
         <h3>Sensor 2 · Exhaust</h3>
         <div className="reading-val">{deviceDisconnected ? 'Disconnected' : shownGas.outlet != null ? shownGas.outlet.toFixed(0) : '—'}{!deviceDisconnected && <small>ppm CO₂</small>}</div>
-        <small className="pop-next">{deviceDisconnected ? 'Waiting for the ESP32 to reconnect…' : live ? `next update in ${gasCountdown.outlet} s` : ' '}</small>
+        <small className="pop-next">{deviceDisconnected ? 'Waiting for the ESP32 to reconnect…' : live ? 'Updates 1 s after the intake' : ' '}</small>
         {deviceDisconnected ? <span className="co2-band" style={{background:'#8c948a'}}>Disconnected</span> : <Co2Band ppm={shownGas.outlet}/>}
       </article>
 

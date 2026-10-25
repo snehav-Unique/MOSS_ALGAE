@@ -84,6 +84,7 @@ class SensorMatchingTests(unittest.TestCase):
         self.match_in_same_air()
         self.assertEqual(self.client.post('/api/sensors/match').json()['status'], 'matching')
         self.assertIsNone(main.sensor_match['factor'])
+        self.assertEqual(main.sensor_telemetry_history, [])
         self.assertTrue(main.is_board_restart_line('rst:0x1 (POWERON_RESET),boot:0x17'))
         self.assertTrue(main.is_board_restart_line('Connecting to Wi-Fi: hotspot'))
         self.assertFalse(main.is_board_restart_line('{"inlet_ppm":3.1,"outlet_ppm":3.8}'))
