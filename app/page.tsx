@@ -1100,7 +1100,7 @@ function ChamberSensors({mossEfficiency,algaeEfficiency,onApplyEfficiency}:{moss
 
     {(live?.baseline || hardware?.active) && (
       <div className="match-bar">
-        <span>{`Auto baseline${live?.baseline?.reset_at ? ` since ${new Date(live.baseline.reset_at).toLocaleTimeString()}` : ''}: follows the sensors' heater drift so clean air settles back to ~400 ppm, while smoke shows at once and air really cleaned by the filter stays lower at the exhaust. Press Reset only with both sensors in the same clean air.`}</span>
+        <span>{`Auto baseline${live?.baseline?.reset_at ? ` since ${new Date(live.baseline.reset_at).toLocaleTimeString()}` : ''}: follows the sensors' heater drift so clean air settles back to ~400 ppm, while smoke shows at once and air really cleaned by the filter stays lower at the exhaust. Press Reset only with both sensors in the same clean air, and keep them there for 20 s.`}</span>
         {hardware?.active && <button className="sensor-btn secondary" onClick={resetBaseline} disabled={matchRequested}
           title="Use only in clean air: takes the current air as 400 ppm for both sensors right away">
           {matchRequested ? 'Reset ✓' : 'Reset to fresh air'}</button>}

@@ -678,7 +678,12 @@ def to_co2_ppm(value: float) -> float:
 BASELINE_TRACK_RATE = 0.02     # share of the gap followed per reading: ~100 s time constant at one reading per 2 s
 BASELINE_FAST_RATE = 0.3       # for intake readings below fresh air
 BASELINE_FLOOR_PPM = 380.0
-gas_baseline: dict = {'inlet': None, 'ratio': None, 'reset_at': None}
+gas_baseline: dict = {'inlet': None, 'ratio': None, 'reset_at': None, 'ratios': []}
+RATIO_READINGS = 10   # the sensor-to-sensor ratio is the median of the first ~20 s after a reset
+# The sketch prints 2 decimals, so at readings near 0.5 one step is ~2% (~10 ppm). Both sensors are averaged
+# over the same few readings before conversion so that step noise does not flip intake and exhaust.
+SMOOTH_READINGS = 4
+gas_smoothing: dict = {'inlet': [], 'outlet': []}
 
 # MQ-135 outputs always jitter a little; the exact same pair for this many readings (~30 s) means the board
 # or a sensor has stopped updating.
@@ -686,10 +691,20 @@ STATIC_READINGS = 15
 sensor_repeat: dict = {'last': None, 'count': 0}
 
 
+def smoothed(key: str, raw: float) -> float:
+    window = gas_smoothing[key]
+    window.append(raw)
+    del window[:-SMOOTH_READINGS]
+    return sum(window) / len(window)
+
+
 def baseline_ppm_pair(raw1: float, raw2: float) -> tuple[int, int]:
+    raw1, raw2 = smoothed('inlet', raw1), smoothed('outlet', raw2)
     if not gas_baseline['inlet'] or gas_baseline['inlet'] <= 0:
-        gas_baseline.update(inlet=raw1, ratio=raw2 / raw1 if raw1 > 0 else 1.0,
-                            reset_at=datetime.now(timezone.utc).isoformat())
+        gas_baseline.update(inlet=raw1, ratios=[], reset_at=datetime.now(timezone.utc).isoformat())
+    if len(gas_baseline['ratios']) < RATIO_READINGS and raw1 > 0:
+        gas_baseline['ratios'].append(raw2 / raw1)
+        gas_baseline['ratio'] = statistics.median(gas_baseline['ratios'])
     intake_base = gas_baseline['inlet']
     exhaust_base = intake_base * gas_baseline['ratio']
     intake = raw1 * FRESH_AIR_CO2_PPM / intake_base
@@ -710,7 +725,8 @@ def note_static_readings(raw1: float, raw2: float) -> bool:
 def reset_gas_baseline():
     """Take the current air as fresh air (400 ppm) for both gas sensors from the next reading on; both must be
     in the same clean air. Older readings were on the previous baseline, so they are cleared too."""
-    gas_baseline.update(inlet=None, ratio=None, reset_at=None)
+    gas_baseline.update(inlet=None, ratio=None, reset_at=None, ratios=[])
+    gas_smoothing.update(inlet=[], outlet=[])
     sensor_repeat.update(last=None, count=0)
     sensor_telemetry_history.clear()
     return {'status': 'reset'}

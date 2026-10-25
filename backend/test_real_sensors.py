@@ -74,7 +74,8 @@ class BaselineTests(unittest.TestCase):
     def test_smoke_at_intake_puts_sensor_1_above_sensor_2(self):
         for _ in range(20):
             post(self.client, inlet_ppm=3.10, outlet_ppm=3.80)
-        data = post(self.client, inlet_ppm=3.97, outlet_ppm=4.18)['recorded']  # the agarbathi test: S1 +28%, S2 +10%
+        for _ in range(main.SMOOTH_READINGS):
+            data = post(self.client, inlet_ppm=3.97, outlet_ppm=4.18)['recorded']  # the agarbathi test: S1 +28%, S2 +10%
         self.assertGreater(data['inlet_ppm'], data['outlet_ppm'])
         self.assertGreater(data['efficiency'], 10)
 
@@ -85,12 +86,23 @@ class BaselineTests(unittest.TestCase):
         self.assertGreaterEqual(data['inlet_ppm'], 380)
 
     def test_air_cleaned_by_the_filter_stays_lower_at_the_exhaust(self):
-        post(self.client, inlet_ppm=3.0, outlet_ppm=3.3)  # reset with both sensors in the same air
+        for _ in range(main.RATIO_READINGS):  # reset with both sensors in the same air
+            post(self.client, inlet_ppm=3.0, outlet_ppm=3.3)
         for _ in range(300):  # 10 minutes of the filter removing 20%
             data = post(self.client, inlet_ppm=3.0, outlet_ppm=3.3 * 0.8)['recorded']
         self.assertAlmostEqual(data['inlet_ppm'], 400, delta=5)
         self.assertAlmostEqual(data['outlet_ppm'], 320, delta=5)
         self.assertGreater(data['efficiency'], 15)
+
+    def test_step_noise_does_not_flip_intake_and_exhaust(self):
+        # Same air, values with 2 decimals as the sketch prints them: single readings jump by ~2%.
+        import random
+        rng = random.Random(1)
+        for i in range(200):
+            data = post(self.client, inlet_ppm=round(0.52 + rng.uniform(-0.015, 0.015), 2),
+                        outlet_ppm=round(0.39 + rng.uniform(-0.015, 0.015), 2))['recorded']
+            if i > 20:
+                self.assertLess(abs(data['inlet_ppm'] - data['outlet_ppm']), 25)
 
     def test_stuck_readings_are_reported(self):
         for _ in range(main.STATIC_READINGS + 1):
