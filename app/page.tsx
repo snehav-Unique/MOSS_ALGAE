@@ -538,6 +538,7 @@ type SensorTelemetry = {
   board_type: 'arduino' | 'esp32' | 'simulator';
   transport: 'wired' | 'wifi' | 'bluetooth' | 'simulation';
   timestamp: string;
+  sensor_match?: {factor: number | null; matched_at: string | null; progress: number; needed: number} | null;
   health: {
     moss_status: string;
     moss_alert: string | null;
@@ -571,6 +572,7 @@ function ChamberSensors({mossEfficiency,algaeEfficiency,onApplyEfficiency}:{moss
   const [history, setHistory] = useState<SensorTelemetry[]>([]);
   const [connected, setConnected] = useState(false);
   const [sensorIssue, setSensorIssue] = useState<string|null>(null);
+  const [matchRequested, setMatchRequested] = useState(false);
   // Same behaviour as the standalone ESP32 dashboard: the two gas cards take turns, one updating every HOLD_MS,
   // each showing the average of its readings since its own last update; efficiency and climate follow the cards.
   const HOLD_MS = 5000;
@@ -653,6 +655,15 @@ function ChamberSensors({mossEfficiency,algaeEfficiency,onApplyEfficiency}:{moss
   const shownEfficiency = shownGas.inlet && shownGas.outlet != null ? Math.max(0, (shownGas.inlet - shownGas.outlet) / shownGas.inlet * 100) : null;
 
   const deviceDisconnected = !connected && Boolean(live);
+
+  const matchSensors = async () => {
+    setMatchRequested(true);
+    try {
+      await fetch(`${API}/api/sensors/match`, {method: 'POST'});
+    } finally {
+      setTimeout(() => setMatchRequested(false), 30000);
+    }
+  };
 
   const fetchLive = useCallback(async () => {
     setRefreshing(true);
@@ -1098,6 +1109,17 @@ function ChamberSensors({mossEfficiency,algaeEfficiency,onApplyEfficiency}:{moss
 
     {sensorIssue && (
       <div className="chamber-alert-box" role="status"><strong>Sensor status:</strong> {sensorIssue}</div>
+    )}
+
+    {(live?.sensor_match || hardware?.active) && (
+      <div className="match-bar">
+        <span>{live?.sensor_match?.factor
+          ? `Sensors matched in the same air at ${live.sensor_match.matched_at ? new Date(live.sensor_match.matched_at).toLocaleTimeString() : '—'} · exhaust reading × ${live.sensor_match.factor.toFixed(2)} so both read alike in clean air.`
+          : `Matching the two sensors in the same air (${live?.sensor_match?.progress ?? 0}/${live?.sensor_match?.needed ?? 10})… keep smoke away until done.`}</span>
+        {hardware?.active && <button className="sensor-btn secondary" onClick={matchSensors} disabled={matchRequested}
+          title="Both sensors must be in the same clean air: measures their offset over the next ~30 seconds">
+          {matchRequested ? 'Matching…' : 'Match sensors'}</button>}
+      </div>
     )}
 
     {(live?.health?.moss_alert || live?.health?.algae_alert) && (

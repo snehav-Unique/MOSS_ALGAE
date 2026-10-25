@@ -388,3 +388,4 @@ h1 .info-tip{width:24px;height:24px;font-size:14px;vertical-align:.35em}
 .connection-badge.disconnected strong{color:#fca5a5}
 .sensor-kpi-card.offline{opacity:.6;filter:grayscale(.6)}
 .sensor-kpi-card.offline .reading-val{font-size:clamp(20px,1.6vw,28px);color:#8a2a20}
+.match-bar{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-top:14px;padding:10px 14px;background:#eef6f3;border:1px solid #bfdcd5;border-left:4px solid #16858c;color:#1f3a33;font-size:.92rem}
